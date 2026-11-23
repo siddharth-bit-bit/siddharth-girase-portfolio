@@ -1,0 +1,8 @@
+name = "siddharth-girase-portfolio"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "siddharth-portfolio-db"
+database_id = "2198d171-1990-45c1-b1c0-bf286d2ee61a"
