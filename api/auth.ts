@@ -38,20 +38,21 @@ export interface AuditLogEntry {
   details?: string;
 }
 
-// Ensure server secret exists
-function getServerSecret(): string {
+// Ensure server secret exists (canonical ADMIN_JWT_SECRET, local secret file, or FAIL CLOSED)
+function getServerSecret(): string | null {
   try {
-    if (process.env.ADMIN_JWT_SECRET) {
-      return process.env.ADMIN_JWT_SECRET;
+    if (process.env.ADMIN_JWT_SECRET?.trim()) {
+      return process.env.ADMIN_JWT_SECRET.trim();
     }
     if (fs.existsSync(SERVER_SECRET_PATH)) {
-      return fs.readFileSync(SERVER_SECRET_PATH, "utf-8").trim();
+      const stored = fs.readFileSync(SERVER_SECRET_PATH, "utf-8").trim();
+      if (stored.length > 0) return stored;
     }
     const generated = crypto.randomBytes(48).toString("hex");
     fs.writeFileSync(SERVER_SECRET_PATH, generated, { encoding: "utf-8" });
     return generated;
   } catch {
-    return "sg_fallback_secret_key_2026_production_secure";
+    return null;
   }
 }
 
@@ -128,7 +129,18 @@ interface AuthStore {
   updatedAt: number;
 }
 
-function getAuthStore(): AuthStore {
+function getAuthStore(): AuthStore | null {
+  // 1. Prefer canonical environment variables
+  if (process.env.ADMIN_SALT?.trim() && process.env.ADMIN_PASSWORD_HASH?.trim()) {
+    return {
+      email: AUTHORIZED_OWNER_EMAIL,
+      salt: process.env.ADMIN_SALT.trim(),
+      passwordHash: process.env.ADMIN_PASSWORD_HASH.trim(),
+      updatedAt: Date.now(),
+    };
+  }
+
+  // 2. Check local secure auth store if present
   if (fs.existsSync(AUTH_STORE_PATH)) {
     try {
       const data = JSON.parse(fs.readFileSync(AUTH_STORE_PATH, "utf-8"));
@@ -138,31 +150,16 @@ function getAuthStore(): AuthStore {
     } catch {}
   }
 
-  // Initialize with initial owner credentials: default password "Siddharth@2026!"
-  // Siddharth can change this immediately in the dashboard or via reset
-  const salt = crypto.randomBytes(24).toString("hex");
-  const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || "Siddharth@2026!";
-  const passwordHash = hashPassword(initialPassword, salt);
-
-  const initialStore: AuthStore = {
-    email: AUTHORIZED_OWNER_EMAIL,
-    salt,
-    passwordHash,
-    updatedAt: Date.now(),
-  };
-
-  try {
-    fs.writeFileSync(AUTH_STORE_PATH, JSON.stringify(initialStore, null, 2), { encoding: "utf-8" });
-  } catch (err) {
-    console.error("Failed to initialize auth store:", err);
-  }
-
-  return initialStore;
+  // FAIL CLOSED: Never use hardcoded default passwords
+  return null;
 }
 
 // Sign session token with HMAC-SHA256
 export function createSessionToken(email: string): string {
   const secret = getServerSecret();
+  if (!secret) {
+    throw new Error("Cannot sign session token: Missing canonical ADMIN_JWT_SECRET.");
+  }
   const payload: SessionPayload = {
     email,
     role: "owner",
@@ -190,6 +187,9 @@ export function verifySessionToken(token: string): { valid: boolean; payload?: S
 
   const [payloadBase64, providedSig] = parts;
   const secret = getServerSecret();
+  if (!secret) {
+    return { valid: false, reason: "Server configuration error: Authentication secret is not configured" };
+  }
   const expectedSig = crypto.createHmac("sha256", secret).update(payloadBase64).digest("base64url");
 
   const providedBuffer = Buffer.from(providedSig);
@@ -243,8 +243,27 @@ export async function authenticateOwner(
     };
   }
 
-  // 3. Verify password against secure hash
+  // 3. Verify password against secure hash (FAIL CLOSED)
   const store = getAuthStore();
+  if (!store || !store.salt || !store.passwordHash) {
+    logAudit("LOGIN_FAILED_CONFIG_ERROR", ip, "FAILED", normalizedEmail, "Missing ADMIN_PASSWORD_HASH or ADMIN_SALT");
+    return {
+      success: false,
+      status: 500,
+      message: "Server configuration error: Admin authentication credentials are not configured.",
+    };
+  }
+
+  const secret = getServerSecret();
+  if (!secret) {
+    logAudit("LOGIN_FAILED_CONFIG_ERROR", ip, "FAILED", normalizedEmail, "Missing ADMIN_JWT_SECRET");
+    return {
+      success: false,
+      status: 500,
+      message: "Server configuration error: Admin session signing secret is not configured.",
+    };
+  }
+
   const candidateHash = hashPassword(password, store.salt);
 
   const candidateBuf = Buffer.from(candidateHash);

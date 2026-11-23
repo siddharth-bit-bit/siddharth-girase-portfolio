@@ -43,8 +43,10 @@ function base64UrlDecode(str: string): Uint8Array {
   return bytes;
 }
 
-export function getSecret(env: AuthEnv): string {
-  return env.ADMIN_JWT_SECRET || env.ADMIN_SECRET || "sg_cloudflare_pages_session_secret_2026_fallback";
+// Canonical Session Signing Secret: FAILS CLOSED if unconfigured
+export function getSecret(env: AuthEnv): string | null {
+  const secret = (env.ADMIN_JWT_SECRET || env.ADMIN_SECRET || "").trim();
+  return secret.length > 0 ? secret : null;
 }
 
 // PBKDF2 Password Hashing using Web Crypto API (100,000 iterations, SHA-512, 64 bytes)
@@ -75,7 +77,11 @@ export async function hashPassword(password: string, salt: string): Promise<stri
 }
 
 // HMAC-SHA256 Token Signing
-export async function createSessionToken(email: string, secret: string): Promise<string> {
+export async function createSessionToken(email: string, secret: string | null): Promise<string> {
+  if (!secret || typeof secret !== "string" || secret.trim().length === 0) {
+    throw new Error("Cannot sign session token: Missing canonical ADMIN_JWT_SECRET.");
+  }
+
   const enc = new TextEncoder();
   const payload: SessionPayload = {
     email: email.toLowerCase(),
@@ -105,8 +111,12 @@ export async function createSessionToken(email: string, secret: string): Promise
 // HMAC-SHA256 Token Verification
 export async function verifySessionToken(
   token: string,
-  secret: string
+  secret: string | null
 ): Promise<{ valid: boolean; payload?: SessionPayload; reason?: string }> {
+  if (!secret || typeof secret !== "string" || secret.trim().length === 0) {
+    return { valid: false, reason: "Server configuration error: ADMIN_JWT_SECRET is not configured" };
+  }
+
   if (!token || typeof token !== "string") {
     return { valid: false, reason: "No token provided" };
   }
@@ -153,7 +163,7 @@ export async function verifySessionToken(
   }
 }
 
-// Extract token from Request
+// Extract token from Request (Bearer header, Cookie, or JSON body)
 export function extractToken(request: Request): string | null {
   const authHeader = request.headers.get("Authorization") || request.headers.get("authorization");
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -176,6 +186,26 @@ export async function verifyAdminRequest(context: {
   request: Request;
   env: AuthEnv;
 }): Promise<{ authorized: boolean; email?: string; errorResponse?: Response }> {
+  const secret = getSecret(context.env);
+
+  // FAIL CLOSED if session secret is missing
+  if (!secret) {
+    return {
+      authorized: false,
+      errorResponse: new Response(
+        JSON.stringify({
+          success: false,
+          status: 500,
+          message: "Server configuration error: Authentication secret is not configured.",
+        }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        }
+      ),
+    };
+  }
+
   let token = extractToken(context.request);
 
   // If not in headers/cookies, check JSON body if method is POST
@@ -206,7 +236,6 @@ export async function verifyAdminRequest(context: {
     };
   }
 
-  const secret = getSecret(context.env);
   const result = await verifySessionToken(token, secret);
 
   if (!result.valid || !result.payload) {

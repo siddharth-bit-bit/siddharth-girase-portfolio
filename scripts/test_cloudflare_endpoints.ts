@@ -12,6 +12,7 @@ import {
 } from "../functions/utils/auth.ts";
 
 import { onRequestPost as loginHandler } from "../functions/api/auth/login.ts";
+import { onRequest as logoutHandler } from "../functions/api/auth/logout.ts";
 import { onRequest as verifyHandler } from "../functions/api/auth/verify.ts";
 import { onRequestPost as inquiryHandler } from "../functions/api/inquiry.ts";
 import { onRequestPost as cldSignHandler } from "../functions/api/admin/cloudinary-sign.ts";
@@ -23,13 +24,16 @@ import { onRequestPost as showreelSaveHandler } from "../functions/api/admin/sho
 import { onRequestGet as projectsGetHandler } from "../functions/api/projects.ts";
 import { onRequestGet as showreelGetHandler } from "../functions/api/showreel.ts";
 
-// Test Environment Mock
+// Test Environment Mock with isolated ephemeral credentials
+const TEST_PASSWORD = "AutomatedSecureTest#2026!";
+const TEST_SALT = "a1b2c3d4e5f67890123456789abcdef0123456789abcdef0";
+
 const TEST_ENV: any = {
-  ADMIN_JWT_SECRET: "test_secret_for_automated_verification_2026",
+  ADMIN_JWT_SECRET: "dynamic_jwt_secret_for_automated_test_suite_2026",
   CLOUDINARY_CLOUD_NAME: "he2zkdrt",
   CLOUDINARY_API_KEY: "619221426496247",
   CLOUDINARY_API_SECRET: "mock_secret_test_only",
-  ADMIN_SALT: "e4f8a1c93b7d2e5f8a0b4c6e8d1a3f5b7c9e0a2d4f6b8a1c",
+  ADMIN_SALT: TEST_SALT,
 };
 
 let passCount = 0;
@@ -50,8 +54,8 @@ async function runTests() {
   console.log("CLOUDFLARE PAGES FUNCTIONS AUTOMATED ENDPOINT VERIFICATION");
   console.log("==============================================================================\n");
 
-  // Generate test password hash for "Siddharth@2026!"
-  TEST_ENV.ADMIN_PASSWORD_HASH = await hashPassword("Siddharth@2026!", TEST_ENV.ADMIN_SALT);
+  // Derive dynamic password hash using PBKDF2 Web Crypto API
+  TEST_ENV.ADMIN_PASSWORD_HASH = await hashPassword(TEST_PASSWORD, TEST_ENV.ADMIN_SALT);
 
   // ----------------------------------------------------------------------------
   // 1. AUTH HELPER TESTS
@@ -71,9 +75,52 @@ async function runTests() {
   assert(verifyBadEmail.valid === false, "verifySessionToken rejects unauthorized non-owner email");
 
   // ----------------------------------------------------------------------------
-  // 2. /api/auth/login TESTS
+  // 2. FAIL-CLOSED SECURITY TESTS (MISSING ENVIRONMENT VARIABLES)
   // ----------------------------------------------------------------------------
-  console.log("\n--- 2. Testing /api/auth/login ---");
+  console.log("\n--- 2. Testing Fail-Closed Behavior on Missing Configuration ---");
+
+  // Missing ADMIN_PASSWORD_HASH
+  const envNoHash = { ...TEST_ENV, ADMIN_PASSWORD_HASH: undefined };
+  const loginNoHashReq = new Request("https://example.com/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD }),
+  });
+  const loginNoHashRes = await loginHandler({ env: envNoHash, request: loginNoHashReq });
+  assert(loginNoHashRes.status === 500, "Login fails closed (500) when ADMIN_PASSWORD_HASH is missing");
+
+  // Missing ADMIN_SALT
+  const envNoSalt = { ...TEST_ENV, ADMIN_SALT: undefined };
+  const loginNoSaltReq = new Request("https://example.com/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD }),
+  });
+  const loginNoSaltRes = await loginHandler({ env: envNoSalt, request: loginNoSaltReq });
+  assert(loginNoSaltRes.status === 500, "Login fails closed (500) when ADMIN_SALT is missing");
+
+  // Missing ADMIN_JWT_SECRET
+  const envNoSecret = { ...TEST_ENV, ADMIN_JWT_SECRET: undefined, ADMIN_SECRET: undefined };
+  const loginNoSecretReq = new Request("https://example.com/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD }),
+  });
+  const loginNoSecretRes = await loginHandler({ env: envNoSecret, request: loginNoSecretReq });
+  assert(loginNoSecretRes.status === 500, "Login fails closed (500) when ADMIN_JWT_SECRET is missing");
+
+  // verifyAdminRequest fails closed when ADMIN_JWT_SECRET is missing
+  const adminReqNoSecret = new Request("https://example.com/api/auth/verify", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const adminResNoSecret = await verifyAdminRequest({ env: envNoSecret, request: adminReqNoSecret });
+  assert(adminResNoSecret.authorized === false && adminResNoSecret.errorResponse?.status === 500, "verifyAdminRequest fails closed (500) when ADMIN_JWT_SECRET is missing");
+
+  // ----------------------------------------------------------------------------
+  // 3. /api/auth/login & /api/auth/logout TESTS
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 3. Testing /api/auth/login & /api/auth/logout ---");
   // Bad email
   const badEmailReq = new Request("https://example.com/api/auth/login", {
     method: "POST",
@@ -96,39 +143,55 @@ async function runTests() {
   const validLoginReq = new Request("https://example.com/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: "Siddharth@2026!", persist: true }),
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD, persist: true }),
   });
   const validLoginRes = await loginHandler({ env: TEST_ENV, request: validLoginReq });
   const loginData: any = await validLoginRes.json();
   const setCookie = validLoginRes.headers.get("Set-Cookie");
   assert(validLoginRes.status === 200 && loginData.success === true, "Login succeeds with valid credentials (200 OK)");
   assert(Boolean(loginData.token), "Login response returns valid token");
-  assert(Boolean(setCookie && setCookie.includes("HttpOnly") && setCookie.includes("Secure")), "Login sets HttpOnly Secure Cookie");
+  assert(Boolean(setCookie && setCookie.includes("HttpOnly") && setCookie.includes("Secure") && setCookie.includes("SameSite=Lax")), "Login sets HttpOnly Secure SameSite=Lax Cookie");
 
   const validToken = loginData.token;
 
+  // Logout clears HttpOnly cookie
+  const logoutRes = await logoutHandler();
+  const logoutData: any = await logoutRes.json();
+  const logoutCookie = logoutRes.headers.get("Set-Cookie");
+  assert(logoutRes.status === 200 && logoutData.success === true, "Logout succeeds (200 OK)");
+  assert(Boolean(logoutCookie && logoutCookie.includes("Max-Age=0")), "Logout expires the HttpOnly session cookie");
+
   // ----------------------------------------------------------------------------
-  // 3. /api/auth/verify TESTS
+  // 4. /api/auth/verify TESTS (BEARER & COOKIE AUTH)
   // ----------------------------------------------------------------------------
-  console.log("\n--- 3. Testing /api/auth/verify ---");
-  // Without token
+  console.log("\n--- 4. Testing /api/auth/verify (Bearer Header & Cookie Authentication) ---");
+  // Without credentials
   const noTokenReq = new Request("https://example.com/api/auth/verify", { method: "POST" });
   const noTokenRes = await verifyHandler({ env: TEST_ENV, request: noTokenReq });
-  assert(noTokenRes.status === 401, "Verify without token returns 401 Unauthorized");
+  assert(noTokenRes.status === 401, "Verify without credentials returns 401 Unauthorized");
 
   // With valid token in Bearer header
-  const authVerifyReq = new Request("https://example.com/api/auth/verify", {
+  const authBearerReq = new Request("https://example.com/api/auth/verify", {
     method: "POST",
     headers: { Authorization: `Bearer ${validToken}` },
   });
-  const authVerifyRes = await verifyHandler({ env: TEST_ENV, request: authVerifyReq });
-  const verifyData: any = await authVerifyRes.json();
-  assert(authVerifyRes.status === 200 && verifyData.success === true, "Verify with valid Bearer token returns 200 OK");
+  const authBearerRes = await verifyHandler({ env: TEST_ENV, request: authBearerReq });
+  const bearerData: any = await authBearerRes.json();
+  assert(authBearerRes.status === 200 && bearerData.success === true, "Verify with valid Bearer token returns 200 OK");
+
+  // With valid token in HttpOnly Cookie header
+  const authCookieReq = new Request("https://example.com/api/auth/verify", {
+    method: "POST",
+    headers: { Cookie: `sg_admin_jwt=${validToken}` },
+  });
+  const authCookieRes = await verifyHandler({ env: TEST_ENV, request: authCookieReq });
+  const cookieData: any = await authCookieRes.json();
+  assert(authCookieRes.status === 200 && cookieData.success === true, "Verify with HttpOnly Cookie returns 200 OK");
 
   // ----------------------------------------------------------------------------
-  // 4. PROTECTED ADMIN ENDPOINTS — UNAUTHORIZED REQUESTS (401/403)
+  // 5. PROTECTED ADMIN ENDPOINTS — UNAUTHORIZED REQUESTS (401)
   // ----------------------------------------------------------------------------
-  console.log("\n--- 4. Testing Admin Endpoint Security (Unauthorized Access Blocked) ---");
+  console.log("\n--- 5. Testing Admin Endpoint Security (Unauthorized Access Blocked) ---");
 
   const unauthSignReq = new Request("https://example.com/api/admin/cloudinary-sign", {
     method: "POST",
@@ -175,9 +238,9 @@ async function runTests() {
   assert(unauthCldDelRes.status === 401, "/api/admin/cloudinary-delete blocks unauthenticated request (401)");
 
   // ----------------------------------------------------------------------------
-  // 5. PROTECTED ADMIN ENDPOINTS — AUTHORIZED REQUESTS (200 OK)
+  // 6. PROTECTED ADMIN ENDPOINTS — AUTHORIZED REQUESTS (200 OK)
   // ----------------------------------------------------------------------------
-  console.log("\n--- 5. Testing Admin Endpoint Functionality (Authorized Access) ---");
+  console.log("\n--- 6. Testing Admin Endpoint Functionality (Authorized Access) ---");
 
   // Mock D1 Database for CRUD operations
   let lastD1Query = "";
@@ -199,18 +262,18 @@ async function runTests() {
   };
   const ENV_WITH_DB = { ...TEST_ENV, DB: MOCK_DB };
 
-  // Authorized Cloudinary Sign
+  // Authorized Cloudinary Sign (via Cookie)
   const authSignReq = new Request("https://example.com/api/admin/cloudinary-sign", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${validToken}`,
+      Cookie: `sg_admin_jwt=${validToken}`,
     },
     body: JSON.stringify({ resource_type: "video", public_id: "test_new_video" }),
   });
   const authSignRes = await cldSignHandler({ env: TEST_ENV, request: authSignReq });
   const signData: any = await authSignRes.json();
-  assert(authSignRes.status === 200 && signData.success === true, "Authorized Cloudinary Sign returns 200 OK");
+  assert(authSignRes.status === 200 && signData.success === true, "Authorized Cloudinary Sign via Cookie returns 200 OK");
   assert(Boolean(signData.data?.signature), "Generated signature is present");
   assert(signData.data?.apiKey === TEST_ENV.CLOUDINARY_API_KEY, "API Key is returned");
   assert(!signData.data?.apiSecret, "API Secret is NOT returned in client response");
@@ -278,9 +341,9 @@ async function runTests() {
   assert(lastD1Query.includes("INSERT OR REPLACE INTO showreel"), "Showreel Save executes INSERT OR REPLACE against D1");
 
   // ----------------------------------------------------------------------------
-  // 6. PUBLIC ENDPOINTS TESTS
+  // 7. PUBLIC ENDPOINTS TESTS
   // ----------------------------------------------------------------------------
-  console.log("\n--- 6. Testing Public Endpoints (/api/projects & /api/showreel) ---");
+  console.log("\n--- 7. Testing Public Endpoints (/api/projects & /api/showreel) ---");
   const pubProjectsReq = new Request("https://example.com/api/projects", { method: "GET" });
   const pubProjectsRes = await projectsGetHandler({ env: TEST_ENV, request: pubProjectsReq });
   const pubProjectsData: any = await pubProjectsRes.json();
@@ -295,9 +358,9 @@ async function runTests() {
   assert(pubShowreelData.showreel?.videoUrl.startsWith("https://res.cloudinary.com/"), "Public showreel videoUrl uses permanent Cloudinary CDN");
 
   // ----------------------------------------------------------------------------
-  // 7. CONTACT FORM (/api/inquiry) TESTS
+  // 8. CONTACT FORM (/api/inquiry) TESTS
   // ----------------------------------------------------------------------------
-  console.log("\n--- 7. Testing Contact Form (/api/inquiry) Validation & Error Handling ---");
+  console.log("\n--- 8. Testing Contact Form (/api/inquiry) Validation & Error Handling ---");
   // Missing fields
   const missingFieldReq = new Request("https://example.com/api/inquiry", {
     method: "POST",

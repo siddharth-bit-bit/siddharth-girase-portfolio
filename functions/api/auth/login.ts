@@ -1,5 +1,6 @@
 // Cloudflare Pages Function: /api/auth/login
 // Secure owner authentication endpoint with PBKDF2 password hashing and signed JWT session tokens
+// FAILS CLOSED when environment variables are missing. Never uses default credentials.
 
 import {
   AUTHORIZED_OWNER_EMAIL,
@@ -38,10 +39,11 @@ export const onRequestPost = async (context: { env: AuthEnv; request: Request })
       );
     }
 
-    // Determine salt and password hash from Environment variables or D1 database
-    let salt = context.env.ADMIN_SALT;
-    let expectedHash = context.env.ADMIN_PASSWORD_HASH;
+    // Determine salt and password hash from canonical Environment variables
+    let salt = (context.env.ADMIN_SALT || "").trim();
+    let expectedHash = (context.env.ADMIN_PASSWORD_HASH || "").trim();
 
+    // Optional D1 lookup fallback if DB binding exists
     if ((!salt || !expectedHash) && context.env.DB) {
       try {
         const query = await context.env.DB.prepare(
@@ -51,19 +53,36 @@ export const onRequestPost = async (context: { env: AuthEnv; request: Request })
           .first();
 
         if (query) {
-          expectedHash = query.password_hash;
-          salt = query.salt;
+          expectedHash = (query.password_hash || "").trim() || expectedHash;
+          salt = (query.salt || "").trim() || salt;
         }
       } catch (e) {
         console.warn("Could not query admin_auth from D1:", e);
       }
     }
 
-    // Default fallback credentials if unconfigured
+    // FAIL CLOSED: If salt or expectedHash are not configured, reject with safe error
     if (!salt || !expectedHash) {
-      salt = "e4f8a1c93b7d2e5f8a0b4c6e8d1a3f5b7c9e0a2d4f6b8a1c";
-      // Hash of "Siddharth@2026!" with the salt above
-      expectedHash = await hashPassword("Siddharth@2026!", salt);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          status: 500,
+          message: "Server configuration error: Admin authentication credentials are not configured.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const secret = getSecret(context.env);
+    if (!secret) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          status: 500,
+          message: "Server configuration error: Admin session signing secret is not configured.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
     }
 
     const computedHash = await hashPassword(password, salt);
@@ -79,7 +98,6 @@ export const onRequestPost = async (context: { env: AuthEnv; request: Request })
       );
     }
 
-    const secret = getSecret(context.env);
     const token = await createSessionToken(email, secret);
     const maxAge = persist ? 30 * 24 * 60 * 60 : 24 * 60 * 60; // 30 days or 1 day
 

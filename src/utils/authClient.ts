@@ -1,4 +1,5 @@
 // Client-side authentication and security helper for Siddharth Girase Portfolio
+// Prefers HttpOnly cookie-based sessions, avoids exposing tokens to persistent localStorage
 
 export const AUTHORIZED_OWNER_EMAIL = "girasejitendra249@gmail.com";
 const TOKEN_STORAGE_KEY = "sg_portfolio_admin_jwt";
@@ -10,9 +11,10 @@ export interface AdminUser {
   role: "owner";
 }
 
+// Scoped strictly to current browser tab session (never long-lived localStorage)
 export function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
-  return sessionStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem(TOKEN_STORAGE_KEY);
+  return sessionStorage.getItem(TOKEN_STORAGE_KEY) || null;
 }
 
 export function getAuthHeader(): Record<string, string> {
@@ -33,11 +35,16 @@ export function getStoredUser(): AdminUser | null {
 
 export function setSession(token: string, user: AdminUser, persist: boolean = false): void {
   if (typeof window === "undefined") return;
+  // Session token is strictly kept in transient sessionStorage to mitigate XSS persistence
   sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
   sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+
+  // If persist is selected, user profile information (non-secret) is saved,
+  // while the server sets a 30-day Max-Age on the HttpOnly Secure session cookie.
   if (persist) {
-    localStorage.setItem(TOKEN_STORAGE_KEY, token);
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(USER_STORAGE_KEY);
   }
 }
 
@@ -47,21 +54,31 @@ export function clearSession(): void {
   sessionStorage.removeItem(USER_STORAGE_KEY);
   localStorage.removeItem(TOKEN_STORAGE_KEY);
   localStorage.removeItem(USER_STORAGE_KEY);
+
+  // Invalidate server-side HttpOnly cookie
+  fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "same-origin",
+  }).catch(() => {});
 }
 
-// Check if currently authenticated as owner via backend verification
+// Check if currently authenticated as owner via backend verification (checks HttpOnly cookie & Bearer token)
 export async function verifyOwnerSession(): Promise<boolean> {
   const token = getAuthToken();
-  if (!token) return false;
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     const res = await fetch("/api/auth/verify", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ token }),
+      credentials: "same-origin",
+      headers,
+      body: JSON.stringify(token ? { token } : {}),
     });
 
     if (res.ok) {
@@ -74,7 +91,7 @@ export async function verifyOwnerSession(): Promise<boolean> {
     console.warn("Backend session check failed:", err);
   }
 
-  // If token failed verification, clear corrupted session
+  // If session is invalid, clear client state
   clearSession();
   return false;
 }
@@ -88,8 +105,9 @@ export async function loginOwner(
   try {
     const res = await fetch("/api/auth/login", {
       method: "POST",
+      credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim(), password }),
+      body: JSON.stringify({ email: email.trim(), password, persist }),
     });
 
     const data = await res.json();
@@ -115,6 +133,7 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
   try {
     const res = await fetch("/api/auth/request-password-reset", {
       method: "POST",
+      credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email.trim() }),
     });
@@ -137,6 +156,7 @@ export async function completePasswordReset(
   try {
     const res = await fetch("/api/auth/reset-password", {
       method: "POST",
+      credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code: code.trim(), newPassword }),
     });
@@ -150,15 +170,19 @@ export async function completePasswordReset(
 // Audit logging helper
 export async function logAdminAudit(action: string, details?: string): Promise<void> {
   const token = getAuthToken();
-  if (!token) return;
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     await fetch("/api/admin/log_audit_action", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      credentials: "same-origin",
+      headers,
       body: JSON.stringify({ userAction: action, details }),
     });
   } catch {}
@@ -167,15 +191,19 @@ export async function logAdminAudit(action: string, details?: string): Promise<v
 // Retrieve audit logs
 export async function fetchAuditLogs(): Promise<any[]> {
   const token = getAuthToken();
-  if (!token) return [];
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     const res = await fetch("/api/admin/list_audit_logs", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      credentials: "same-origin",
+      headers,
       body: JSON.stringify({}),
     });
     const data = await res.json();

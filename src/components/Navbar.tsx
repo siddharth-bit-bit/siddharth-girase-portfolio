@@ -133,7 +133,7 @@ const Navbar = ({ onOpenAdmin }: NavbarProps) => {
                   <button
                     className="navbar-admin-btn"
                     onClick={onOpenAdmin}
-                    title="SG Portfolio Manager (PIN: sg2026)"
+                    title="SG Portfolio Manager (Admin Access)"
                     data-cursor="pointer"
                     aria-label="Admin Dashboard"
                   >

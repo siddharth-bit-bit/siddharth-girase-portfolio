@@ -15,10 +15,10 @@ A world-class, award-winning creative video editor portfolio website featuring 3
 - **Video Portfolio Showcase**: Filterable gallery for *All Work, Reels, Cinematic Edits, Social Media Videos, Promotional Videos, and Other Projects*.
 - **Embedded Showreel**: Full-width 4K master showreel player with sound visualizer equalizer and cinema controls.
 - **Admin Video Management System**:
-  - Secure PIN-protected dashboard (Default PIN: `sg2026`).
-  - Direct computer uploads for `.mp4` and `.webm` video files.
+  - Secure owner-authenticated dashboard with PBKDF2 password hashing & HttpOnly JWT sessions.
+  - Direct computer uploads with Cloudinary chunked streaming.
   - Custom thumbnail uploads, duration detection, title, category, and description editor.
-  - IndexedDB high-performance client storage + optional Cloudinary / Supabase cloud integration.
+  - Real-time Cloudflare Pages Functions serverless API integration.
   - Shortcut: Press `Ctrl + Shift + A` (or `Cmd + Shift + A`) anytime to open the dashboard!
 - **Services Showcase**: 6 dedicated video editing service cards (Reels, Commercials, YouTube, Color Grading, etc.).
 - **Editing Tools & Software**: Dedicated creative tools showcase (Premiere Pro, After Effects, DaVinci Resolve, Audition, Photoshop, Blender, CapCut).
@@ -34,47 +34,57 @@ A world-class, award-winning creative video editor portfolio website featuring 3
 npm install
 ```
 
-### 2. Run Development Server
+### 2. Configure Environment Variables
+Copy `.env.example` to `.env` and configure your credentials:
+```bash
+cp .env.example .env
+```
+
+### 3. Generate Secure Admin Credentials
+Run the credential generator to create your unique password hash, salt, and JWT secret:
+```bash
+node scripts/generate_admin_credentials.cjs "YourNewSecurePassword"
+```
+Copy the generated values to your `.env` (for local development) and to Cloudflare Pages Environment Variables (for production deployment).
+
+### 4. Run Development Server
 ```bash
 npm run dev
 ```
 Open your browser at `http://localhost:5173`.
 
-### 3. Build for Production
+### 5. Build for Production
 ```bash
 npm run build
 ```
 
 ---
 
-## 🔐 How to Upload Videos & Admin Management
+## 🔐 How to Access the Admin Dashboard
 
 1. Click the **Lock icon** in the top-right navbar, or press `Ctrl + Shift + A`.
-2. Enter the default security PIN: `sg2026` and click **Unlock Dashboard**.
-3. In the **Upload Video Project** tab:
-   - Enter your project title and pick the category.
-   - Choose a video file directly from your computer (`.mp4`, `.webm`) or enter a streaming URL.
-   - Optionally upload a custom thumbnail image (`.jpg`, `.png`, `.webp`).
-   - Add a brief description, client name, and year.
-   - Click **Publish to Portfolio**.
-4. The new video will immediately appear in your portfolio gallery and can be watched in fullscreen!
-5. Manage or delete uploaded videos anytime from the **Manage Uploads** tab.
+2. Enter your authorized owner email (`girasejitendra249@gmail.com`) and your secure password.
+3. Once authenticated:
+   - In the **Upload Video Project** tab: add title, category, video file/URL, and thumbnail.
+   - In the **Manage Uploads** tab: edit, re-order, or delete existing portfolio projects.
+   - In the **Showreel Settings** tab: update the master showreel video and poster.
+4. Changes synchronize immediately across the live portfolio.
 
 ---
 
-## ☁️ Cloud Video Storage Setup (Optional)
+## ☁️ Production Cloudflare Pages Environment Variables
 
-To enable global cloud video streaming via Cloudinary or Supabase, create a `.env` file in the project root:
+Configure the following variables in **Cloudflare Dashboard -> Workers & Pages -> your-project -> Settings -> Environment variables**:
 
-```env
-# Cloudinary (Free 25GB)
-VITE_CLOUDINARY_CLOUD_NAME=your_cloud_name
-VITE_CLOUDINARY_UPLOAD_PRESET=your_upload_preset
-
-# OR Supabase
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your_anon_key
-```
+| Variable Name | Description | Scope |
+| :--- | :--- | :--- |
+| `ADMIN_PASSWORD_HASH` | 64-byte hex PBKDF2 SHA-512 hash of owner password | Server-side only (Secret) |
+| `ADMIN_SALT` | 24-byte cryptographic random hex salt | Server-side only (Secret) |
+| `ADMIN_JWT_SECRET` | Canonical 48-byte cryptographic session signing secret | Server-side only (Secret) |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud identifier | Server-side only |
+| `CLOUDINARY_API_KEY` | Cloudinary API Key | Server-side only |
+| `CLOUDINARY_API_SECRET` | Cloudinary API Secret (for signed direct uploads) | Server-side only (Secret) |
+| `RESEND_API_KEY` | Resend API key for inquiry emails & password reset (optional) | Server-side only (Secret) |
 
 ---
 
