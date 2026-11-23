@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import HoverLinks from "./HoverLinks";
 import { gsap } from "gsap";
-import { ScrollSmoother } from "gsap-trial/ScrollSmoother";
+import { ScrollSmoother } from "gsap/ScrollSmoother";
 import { FaLock, FaBars, FaTimes, FaWhatsapp, FaPhoneAlt, FaInstagram, FaLinkedinIn } from "react-icons/fa";
 import { socialLinks } from "../data/socialLinks";
 import "./styles/Navbar.css";
