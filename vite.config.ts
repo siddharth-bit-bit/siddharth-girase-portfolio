@@ -159,7 +159,7 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
               res.setHeader("Content-Type", "application/json");
 
               if (url === "/api/auth/login" && req.method === "POST") {
-                const result = await authenticateOwner(body.email, body.password, clientIp);
+                const result = await authenticateOwner(body.email, body.password, clientIp, Boolean(body.persist));
                 if (result.success && result.token) {
                   const maxAge = body.persist ? 30 * 24 * 60 * 60 : 24 * 60 * 60;
                   res.setHeader(

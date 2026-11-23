@@ -10,6 +10,7 @@ const AUDIT_LOG_PATH = path.join(process.cwd(), "api", "audit.log");
 
 // Session configuration
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const REMEMBER_ME_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 // In-memory rate limiting map: ip -> { count: number, lockedUntil: number }
@@ -132,16 +133,17 @@ function getAuthStore(): AuthStore | null {
 }
 
 // Sign session token with HMAC-SHA256
-export function createSessionToken(email: string): string {
+export function createSessionToken(email: string, persist: boolean = false): string {
   const secret = getServerSecret();
   if (!secret) {
     throw new Error("Cannot sign session token: Missing canonical ADMIN_JWT_SECRET.");
   }
+  const ttl = persist ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
   const payload: SessionPayload = {
     email,
     role: "owner",
     issuedAt: Date.now(),
-    expiresAt: Date.now() + SESSION_TTL_MS,
+    expiresAt: Date.now() + ttl,
     sessionId: crypto.randomBytes(16).toString("hex"),
   };
 
@@ -194,7 +196,8 @@ export function verifySessionToken(token: string): { valid: boolean; payload?: S
 export async function authenticateOwner(
   email: string,
   password: string,
-  ip: string
+  ip: string,
+  persist: boolean = false
 ): Promise<{ success: boolean; status: number; message: string; token?: string; owner?: any }> {
   // 1. Rate limiting check
   const now = Date.now();
@@ -276,7 +279,7 @@ export async function authenticateOwner(
   rateLimitMap.delete(ip);
 
   // Generate cryptographically signed session token
-  const token = createSessionToken(AUTHORIZED_OWNER_EMAIL);
+  const token = createSessionToken(AUTHORIZED_OWNER_EMAIL, persist);
   logAudit("LOGIN_SUCCESS", ip, "SUCCESS", AUTHORIZED_OWNER_EMAIL, "Owner successfully authenticated");
 
   return {

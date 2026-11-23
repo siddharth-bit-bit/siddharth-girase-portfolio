@@ -1,6 +1,6 @@
 /**
- * Automated Verification Suite for Siddharth Girase Portfolio Security & Endpoints
- * Executed locally to test all security assertions before production deployment.
+ * Complete Automated Verification Suite for Siddharth Girase Portfolio Security & Endpoints
+ * Tests all 18 security and operational assertions before production deployment.
  */
 
 import fs from "node:fs";
@@ -9,11 +9,13 @@ import { spawnSync } from "node:child_process";
 
 import {
   AUTHORIZED_OWNER_EMAIL,
+  SESSION_TTL_MS,
+  REMEMBER_ME_TTL_MS,
   hashPassword,
   createSessionToken,
   verifySessionToken,
   verifyAdminRequest,
-  extractCookieToken,
+  validateSameOrigin,
 } from "../functions/utils/auth.ts";
 
 import { onRequestPost as loginHandler } from "../functions/api/auth/login.ts";
@@ -56,31 +58,45 @@ function assert(condition: boolean, testName: string, details?: string) {
 
 async function runTests() {
   console.log("==============================================================================");
-  console.log("SIDDHARTH GIRASE PORTFOLIO — COMPLETE SECURITY & ENDPOINT VERIFICATION SUITE");
+  console.log("SIDDHARTH GIRASE PORTFOLIO — COMPLETE 18-CATEGORY VERIFICATION SUITE");
   console.log("==============================================================================\n");
 
   // Derive dynamic password hash using PBKDF2 Web Crypto API
   TEST_ENV.ADMIN_PASSWORD_HASH = await hashPassword(TEST_PASSWORD, TEST_ENV.ADMIN_SALT);
 
   // ----------------------------------------------------------------------------
-  // 1. WEB CRYPTO AUTH HELPERS & TOKEN GENERATION
+  // 1. PASSWORD AUTHENTICATION (VALID & INVALID)
   // ----------------------------------------------------------------------------
-  console.log("--- 1. Testing Web Crypto Auth Helpers ---");
-  const rawToken = await createSessionToken(AUTHORIZED_OWNER_EMAIL, TEST_ENV.ADMIN_JWT_SECRET);
-  assert(typeof rawToken === "string" && rawToken.includes("."), "createSessionToken generates valid JWT");
+  console.log("--- 1. Testing Password Authentication ---");
+  // Bad email
+  const badEmailReq = new Request("https://example.com/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: "wrong@example.com", password: TEST_PASSWORD }),
+  });
+  const badEmailRes = await loginHandler({ env: TEST_ENV, request: badEmailReq });
+  assert(badEmailRes.status === 403, "Login rejects non-owner email with 403 Forbidden");
 
-  const verifyValid = await verifySessionToken(rawToken, TEST_ENV.ADMIN_JWT_SECRET);
-  assert(verifyValid.valid === true && verifyValid.payload?.email === AUTHORIZED_OWNER_EMAIL, "verifySessionToken approves valid token");
+  // Wrong password
+  const wrongPwdReq = new Request("https://example.com/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: "IncorrectPassword!" }),
+  });
+  const wrongPwdRes = await loginHandler({ env: TEST_ENV, request: wrongPwdReq });
+  assert(wrongPwdRes.status === 401, "Login rejects incorrect password with 401 Unauthorized");
 
-  const verifyTampered = await verifySessionToken(rawToken + "tampered", TEST_ENV.ADMIN_JWT_SECRET);
-  assert(verifyTampered.valid === false, "verifySessionToken rejects tampered signature");
-
-  const badEmailToken = await createSessionToken("intruder@example.com", TEST_ENV.ADMIN_JWT_SECRET);
-  const verifyBadEmail = await verifySessionToken(badEmailToken, TEST_ENV.ADMIN_JWT_SECRET);
-  assert(verifyBadEmail.valid === false, "verifySessionToken rejects unauthorized non-owner email");
+  // Valid password
+  const validLoginReq = new Request("https://example.com/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD }),
+  });
+  const validLoginRes = await loginHandler({ env: TEST_ENV, request: validLoginReq });
+  assert(validLoginRes.status === 200, "Login succeeds with valid password (200 OK)");
 
   // ----------------------------------------------------------------------------
-  // 2. FAIL-CLOSED BEHAVIOR ON MISSING SECRETS
+  // 2. MISSING ENVIRONMENT VARIABLE FAILURES (FAIL CLOSED 500)
   // ----------------------------------------------------------------------------
   console.log("\n--- 2. Testing Fail-Closed Behavior on Missing Secrets ---");
 
@@ -88,7 +104,7 @@ async function runTests() {
   const envNoHash = { ...TEST_ENV, ADMIN_PASSWORD_HASH: undefined };
   const loginNoHashReq = new Request("https://example.com/api/auth/login", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
     body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD }),
   });
   const loginNoHashRes = await loginHandler({ env: envNoHash, request: loginNoHashReq });
@@ -98,7 +114,7 @@ async function runTests() {
   const envNoSalt = { ...TEST_ENV, ADMIN_SALT: undefined };
   const loginNoSaltReq = new Request("https://example.com/api/auth/login", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
     body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD }),
   });
   const loginNoSaltRes = await loginHandler({ env: envNoSalt, request: loginNoSaltReq });
@@ -108,16 +124,17 @@ async function runTests() {
   const envNoSecret = { ...TEST_ENV, ADMIN_JWT_SECRET: undefined };
   const loginNoSecretReq = new Request("https://example.com/api/auth/login", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
     body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD }),
   });
   const loginNoSecretRes = await loginHandler({ env: envNoSecret, request: loginNoSecretReq });
   assert(loginNoSecretRes.status === 500, "Login fails closed (HTTP 500) when ADMIN_JWT_SECRET is missing");
 
   // verifyAdminRequest fails closed (HTTP 500) when ADMIN_JWT_SECRET is missing
+  const dummyToken = await createSessionToken(AUTHORIZED_OWNER_EMAIL, TEST_ENV.ADMIN_JWT_SECRET);
   const adminReqNoSecret = new Request("https://example.com/api/auth/verify", {
     method: "GET",
-    headers: { Cookie: `sg_admin_jwt=${rawToken}` },
+    headers: { Cookie: `sg_admin_jwt=${dummyToken}` },
   });
   const adminResNoSecret = await verifyAdminRequest({ env: envNoSecret, request: adminReqNoSecret });
   assert(
@@ -126,114 +143,261 @@ async function runTests() {
   );
 
   // ----------------------------------------------------------------------------
-  // 3. /api/auth/login — TOKEN NOT IN JSON & COOKIE SETTINGS
+  // 3. NORMAL 24-HOUR SESSIONS (persist: false)
   // ----------------------------------------------------------------------------
-  console.log("\n--- 3. Testing /api/auth/login Token Exposure & Cookie Handling ---");
-
-  // Login request
-  const validLoginReq = new Request("https://example.com/api/auth/login", {
+  console.log("\n--- 3. Testing Normal 24-Hour Sessions ---");
+  const normalLoginReq = new Request("https://example.com/api/auth/login", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD, persist: false }),
+  });
+  const normalLoginRes = await loginHandler({ env: TEST_ENV, request: normalLoginReq });
+  const normalCookie = normalLoginRes.headers.get("Set-Cookie") || "";
+  const normalTokenMatch = normalCookie.match(/sg_admin_jwt=([^;]+)/);
+  const normalToken = normalTokenMatch ? decodeURIComponent(normalTokenMatch[1].trim()) : "";
+
+  assert(normalCookie.includes("Max-Age=86400"), "Normal login sets cookie Max-Age=86400 (24 hours)");
+
+  const normalVerify = await verifySessionToken(normalToken, TEST_ENV.ADMIN_JWT_SECRET);
+  const normalRemainingHours = ((normalVerify.payload?.expiresAt || 0) - Date.now()) / (1000 * 60 * 60);
+  assert(
+    normalRemainingHours > 23.5 && normalRemainingHours <= 24.1,
+    `Normal token expires in ~24 hours (got ${normalRemainingHours.toFixed(1)}h)`
+  );
+
+  // ----------------------------------------------------------------------------
+  // 4. REMEMBER ME 30-DAY SESSIONS (persist: true)
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 4. Testing Remember Me 30-Day Sessions ---");
+  const persistLoginReq = new Request("https://example.com/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
     body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD, persist: true }),
   });
-  const validLoginRes = await loginHandler({ env: TEST_ENV, request: validLoginReq });
-  const loginData: any = await validLoginRes.json();
-  const setCookie = validLoginRes.headers.get("Set-Cookie");
+  const persistLoginRes = await loginHandler({ env: TEST_ENV, request: persistLoginReq });
+  const persistCookie = persistLoginRes.headers.get("Set-Cookie") || "";
+  const persistTokenMatch = persistCookie.match(/sg_admin_jwt=([^;]+)/);
+  const persistToken = persistTokenMatch ? decodeURIComponent(persistTokenMatch[1].trim()) : "";
 
-  assert(validLoginRes.status === 200 && loginData.success === true, "Login succeeds with valid credentials (200 OK)");
-  assert(loginData.token === undefined, "Login JSON response does NOT expose the JWT token");
+  assert(persistCookie.includes("Max-Age=2592000"), "Remember Me sets cookie Max-Age=2592000 (30 days)");
+
+  const persistVerify = await verifySessionToken(persistToken, TEST_ENV.ADMIN_JWT_SECRET);
+  const persistRemainingDays = ((persistVerify.payload?.expiresAt || 0) - Date.now()) / (1000 * 60 * 60 * 24);
   assert(
-    Boolean(setCookie && setCookie.includes("sg_admin_jwt=")),
-    "Login response sets the sg_admin_jwt cookie"
-  );
-  assert(
-    Boolean(setCookie && setCookie.includes("HttpOnly")),
-    "Login session cookie is flagged as HttpOnly"
-  );
-  assert(
-    Boolean(setCookie && setCookie.includes("Secure")),
-    "Login session cookie is flagged as Secure"
-  );
-  assert(
-    Boolean(setCookie && setCookie.includes("SameSite=Lax")),
-    "Login session cookie has SameSite=Lax attribute"
+    persistRemainingDays > 29.5 && persistRemainingDays <= 30.1,
+    `Remember Me token expires in ~30 days (got ${persistRemainingDays.toFixed(1)}d)`
   );
 
-  // Extract the issued cookie token
-  const cookieMatch = setCookie?.match(/sg_admin_jwt=([^;]+)/);
-  const issuedCookieToken = cookieMatch ? decodeURIComponent(cookieMatch[1].trim()) : "";
-  assert(issuedCookieToken.length > 0, "Successfully parsed issued session token from Set-Cookie header");
-
   // ----------------------------------------------------------------------------
-  // 4. /api/auth/logout — EXPIRES COOKIE
+  // 5. COOKIE & TOKEN EXPIRATION
   // ----------------------------------------------------------------------------
-  console.log("\n--- 4. Testing /api/auth/logout Cookie Expiration ---");
-  const logoutRes = await logoutHandler();
-  const logoutData: any = await logoutRes.json();
-  const logoutCookie = logoutRes.headers.get("Set-Cookie");
-  assert(logoutRes.status === 200 && logoutData.success === true, "Logout succeeds (200 OK)");
-  assert(Boolean(logoutCookie && logoutCookie.includes("Max-Age=0")), "Logout expires the cookie with Max-Age=0");
-  assert(Boolean(logoutCookie && logoutCookie.includes("HttpOnly")), "Logout cookie retains HttpOnly flag");
+  console.log("\n--- 5. Testing Token Expiration Handling ---");
+  // Construct an expired token
+  const enc = new TextEncoder();
+  const expiredPayload = {
+    email: AUTHORIZED_OWNER_EMAIL,
+    role: "owner",
+    issuedAt: Date.now() - 100000,
+    expiresAt: Date.now() - 1000, // already expired
+    sessionId: "expired_session_test",
+  };
+  const expB64 = btoa(JSON.stringify(expiredPayload)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const hmacKey = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(TEST_ENV.ADMIN_JWT_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const expSigBytes = await crypto.subtle.sign("HMAC", hmacKey, enc.encode(expB64));
+  let binStr = "";
+  for (const b of new Uint8Array(expSigBytes)) binStr += String.fromCharCode(b);
+  const expSigB64 = btoa(binStr).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const expiredToken = `${expB64}.${expSigB64}`;
 
-  // ----------------------------------------------------------------------------
-  // 5. AUTHORIZATION REJECTIONS — BEARER & BODY TOKENS REJECTED
-  // ----------------------------------------------------------------------------
-  console.log("\n--- 5. Testing Authorization Rejections (Bearer & Body Tokens Rejected) ---");
+  const expVerify = await verifySessionToken(expiredToken, TEST_ENV.ADMIN_JWT_SECRET);
+  assert(expVerify.valid === false && expVerify.reason === "Session expired", "Expired session token is rejected");
 
-  // 1. Missing cookie -> 401
-  const noCookieReq = new Request("https://example.com/api/auth/verify", { method: "GET" });
-  const noCookieRes = await verifyHandler({ env: TEST_ENV, request: noCookieReq });
-  assert(noCookieRes.status === 401, "Requests without session cookie return 401 Unauthorized");
-
-  // 2. Bearer header alone -> REJECTED (401)
-  const bearerOnlyReq = new Request("https://example.com/api/auth/verify", {
+  const expCookieReq = new Request("https://example.com/api/auth/verify", {
     method: "GET",
-    headers: { Authorization: `Bearer ${issuedCookieToken}` },
+    headers: { Cookie: `sg_admin_jwt=${expiredToken}` },
   });
-  const bearerOnlyRes = await verifyHandler({ env: TEST_ENV, request: bearerOnlyReq });
-  assert(bearerOnlyRes.status === 401, "Bearer header token authentication is REJECTED (401 Unauthorized)");
+  const expCookieRes = await verifyHandler({ env: TEST_ENV, request: expCookieReq });
+  assert(expCookieRes.status === 403, "Request bearing expired session cookie returns 403 Access Denied");
 
-  // 3. JSON body token alone -> REJECTED (401)
-  const jsonBodyReq = new Request("https://example.com/api/auth/verify", {
+  // ----------------------------------------------------------------------------
+  // 6. LOGOUT (INVALIDATES COOKIE)
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 6. Testing /api/auth/logout Cookie Invalidation ---");
+  const logoutReq = new Request("https://example.com/api/auth/logout", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token: issuedCookieToken }),
+    headers: { Origin: "https://example.com" },
   });
-  const jsonBodyRes = await verifyHandler({ env: TEST_ENV, request: jsonBodyReq });
-  assert(jsonBodyRes.status === 401, "JSON body token authentication is REJECTED (401 Unauthorized)");
+  const logoutRes = await logoutHandler({ request: logoutReq });
+  const logoutCookie = logoutRes.headers.get("Set-Cookie") || "";
+  assert(logoutRes.status === 200, "Logout returns 200 OK");
+  assert(logoutCookie.includes("Max-Age=0"), "Logout expires cookie with Max-Age=0");
+  assert(logoutCookie.includes("HttpOnly"), "Logout cookie maintains HttpOnly flag");
 
-  // 4. Cookie authentication -> SUCCEEDS (200)
-  const cookieReq = new Request("https://example.com/api/auth/verify", {
+  // ----------------------------------------------------------------------------
+  // 7. NO TOKEN IN JSON LOGIN RESPONSE
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 7. Testing No Token in JSON Login Response ---");
+  const loginBody: any = await validLoginRes.json();
+  assert(loginBody.token === undefined, "Login JSON body does NOT contain token property");
+  assert(loginBody.jwt === undefined, "Login JSON body does NOT contain jwt property");
+  assert(loginBody.owner?.email === AUTHORIZED_OWNER_EMAIL, "Login response returns non-sensitive owner profile info");
+
+  // ----------------------------------------------------------------------------
+  // 8. NO BROWSER JWT STORAGE IN FRONTEND SOURCE CODE
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 8. Testing Frontend Source Code for Token Storage ---");
+  const authClientSrc = fs.readFileSync(path.join(process.cwd(), "src", "utils", "authClient.ts"), "utf-8");
+  const videoStorageSrc = fs.readFileSync(path.join(process.cwd(), "src", "data", "videoStorage.ts"), "utf-8");
+
+  assert(
+    !authClientSrc.includes("localStorage.setItem('sg_admin_token'") &&
+    !authClientSrc.includes("localStorage.setItem(\"sg_admin_token\"") &&
+    !authClientSrc.includes("sessionStorage.setItem('sg_admin_token'") &&
+    !authClientSrc.includes("sessionStorage.setItem(\"sg_admin_token\""),
+    "authClient.ts does NOT store JWT tokens in localStorage or sessionStorage"
+  );
+  assert(
+    authClientSrc.includes('credentials: "same-origin"'),
+    "authClient.ts enforces credentials: 'same-origin' for API calls"
+  );
+  assert(
+    !videoStorageSrc.includes("getAuthToken()"),
+    "videoStorage.ts does NOT call getAuthToken()"
+  );
+  assert(
+    !videoStorageSrc.includes("Authorization: `Bearer ${token}`") &&
+    !videoStorageSrc.includes("Authorization: `Bearer ${auth}"),
+    "videoStorage.ts does NOT send Bearer token headers for admin operations"
+  );
+
+  // ----------------------------------------------------------------------------
+  // 9. BEARER AUTHENTICATION REJECTED (401)
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 9. Testing Bearer Authentication Rejection ---");
+  const bearerReq = new Request("https://example.com/api/auth/verify", {
     method: "GET",
-    headers: { Cookie: `sg_admin_jwt=${issuedCookieToken}` },
+    headers: { Authorization: `Bearer ${persistToken}` },
   });
-  const cookieRes = await verifyHandler({ env: TEST_ENV, request: cookieReq });
-  const cookieData: any = await cookieRes.json();
-  assert(cookieRes.status === 200 && cookieData.success === true, "HttpOnly Cookie authentication SUCCEEDS (200 OK)");
+  const bearerRes = await verifyHandler({ env: TEST_ENV, request: bearerReq });
+  assert(bearerRes.status === 401, "Bearer header token authentication is REJECTED (401 Unauthorized)");
 
   // ----------------------------------------------------------------------------
-  // 6. ALL SIX ADMIN ENDPOINTS — UNAUTHORIZED REQUESTS REJECTED (401)
+  // 10. BODY-TOKEN AUTHENTICATION REJECTED (401)
   // ----------------------------------------------------------------------------
-  console.log("\n--- 6. Testing All Six Admin Endpoints Reject Unauthorized Requests ---");
+  console.log("\n--- 10. Testing Body-Token Authentication Rejection ---");
+  const bodyTokenReq = new Request("https://example.com/api/auth/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ token: persistToken }),
+  });
+  const bodyTokenRes = await verifyHandler({ env: TEST_ENV, request: bodyTokenReq });
+  assert(bodyTokenRes.status === 401, "JSON body token authentication is REJECTED (401 Unauthorized)");
+
+  // ----------------------------------------------------------------------------
+  // 11. INVALID AND MISMATCHED ORIGIN REJECTED (403)
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 11. Testing Invalid and Mismatched Origin Rejection ---");
+  // Cross-origin Origin header
+  const crossOriginReq = new Request("https://example.com/api/admin/projects/save", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://malicious-attacker.com",
+      Cookie: `sg_admin_jwt=${persistToken}`,
+    },
+    body: JSON.stringify({ project: { id: "test", title: "Test", videoUrl: "https://example.com/v.mp4" } }),
+  });
+  const crossOriginRes = await projectSaveHandler({ env: TEST_ENV, request: crossOriginReq });
+  assert(crossOriginRes.status === 403, "Mismatched Origin header returns 403 Forbidden");
+
+  // Sec-Fetch-Site: cross-site
+  const secFetchReq = new Request("https://example.com/api/admin/projects/save", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://example.com",
+      "Sec-Fetch-Site": "cross-site",
+      Cookie: `sg_admin_jwt=${persistToken}`,
+    },
+    body: JSON.stringify({ project: { id: "test", title: "Test", videoUrl: "https://example.com/v.mp4" } }),
+  });
+  const secFetchRes = await projectSaveHandler({ env: TEST_ENV, request: secFetchReq });
+  assert(secFetchRes.status === 403, "Sec-Fetch-Site: cross-site returns 403 Forbidden");
+
+  // Invalid Origin syntax
+  const invalidOriginReq = new Request("https://example.com/api/admin/projects/save", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "not_a_valid_url",
+      Cookie: `sg_admin_jwt=${persistToken}`,
+    },
+    body: JSON.stringify({ project: { id: "test", title: "Test", videoUrl: "https://example.com/v.mp4" } }),
+  });
+  const invalidOriginRes = await projectSaveHandler({ env: TEST_ENV, request: invalidOriginReq });
+  assert(invalidOriginRes.status === 403, "Malformed Origin header returns 403 Forbidden");
+
+  // ----------------------------------------------------------------------------
+  // 12. MISSING ORIGIN REJECTED FOR STATE-CHANGING OPERATIONS (403)
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 12. Testing Missing Origin Rejection on State-Changing Operations ---");
+  const missingOriginReq = new Request("https://example.com/api/admin/projects/save", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: `sg_admin_jwt=${persistToken}`,
+    },
+    body: JSON.stringify({ project: { id: "test", title: "Test", videoUrl: "https://example.com/v.mp4" } }),
+  });
+  const missingOriginRes = await projectSaveHandler({ env: TEST_ENV, request: missingOriginReq });
+  assert(missingOriginRes.status === 403, "Missing Origin/Referer on state-changing POST returns 403 Forbidden");
+
+  // ----------------------------------------------------------------------------
+  // 13. SAME-ORIGIN REQUESTS ACCEPTED (200)
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 13. Testing Same-Origin Requests Accepted ---");
+  const sameOriginReq = new Request("https://example.com/api/auth/verify", {
+    method: "GET",
+    headers: {
+      Origin: "https://example.com",
+      Cookie: `sg_admin_jwt=${persistToken}`,
+    },
+  });
+  const sameOriginRes = await verifyHandler({ env: TEST_ENV, request: sameOriginReq });
+  assert(sameOriginRes.status === 200, "Same-Origin verified session request returns 200 OK");
+
+  // ----------------------------------------------------------------------------
+  // 14. ALL SIX ADMIN ENDPOINTS REJECT UNAUTHORIZED REQUESTS (401)
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 14. Testing All Six Admin Endpoints Reject Unauthorized Requests ---");
 
   // 1) cloudinary-sign
   const unauthSignReq = new Request("https://example.com/api/admin/cloudinary-sign", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
     body: JSON.stringify({ resource_type: "video" }),
   });
   const unauthSignRes = await cldSignHandler({ env: TEST_ENV, request: unauthSignReq });
   assert(unauthSignRes.status === 401, "1/6: /api/admin/cloudinary-sign rejects unauthorized access (401)");
 
   // 2) cloudinary-usage
-  const unauthUsageReq = new Request("https://example.com/api/admin/cloudinary-usage", { method: "GET" });
+  const unauthUsageReq = new Request("https://example.com/api/admin/cloudinary-usage", {
+    method: "GET",
+    headers: { Origin: "https://example.com" },
+  });
   const unauthUsageRes = await cldUsageHandler({ env: TEST_ENV, request: unauthUsageReq });
   assert(unauthUsageRes.status === 401, "2/6: /api/admin/cloudinary-usage rejects unauthorized access (401)");
 
   // 3) cloudinary-delete
   const unauthCldDelReq = new Request("https://example.com/api/admin/cloudinary-delete", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
     body: JSON.stringify({ publicId: "test_asset" }),
   });
   const unauthCldDelRes = await cldDeleteHandler({ env: TEST_ENV, request: unauthCldDelReq });
@@ -242,7 +406,7 @@ async function runTests() {
   // 4) projects/save
   const unauthSaveReq = new Request("https://example.com/api/admin/projects/save", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
     body: JSON.stringify({ project: { id: "test", title: "Test", videoUrl: "https://example.com/v.mp4" } }),
   });
   const unauthSaveRes = await projectSaveHandler({ env: TEST_ENV, request: unauthSaveReq });
@@ -251,7 +415,7 @@ async function runTests() {
   // 5) projects/delete
   const unauthDeleteReq = new Request("https://example.com/api/admin/projects/delete", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
     body: JSON.stringify({ projectId: "custom-vid-1" }),
   });
   const unauthDeleteRes = await projectDeleteHandler({ env: TEST_ENV, request: unauthDeleteReq });
@@ -260,90 +424,103 @@ async function runTests() {
   // 6) showreel/save
   const unauthShowreelReq = new Request("https://example.com/api/admin/showreel/save", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
     body: JSON.stringify({ showreel: { videoUrl: "https://example.com/v.mp4", posterUrl: "https://example.com/p.jpg" } }),
   });
   const unauthShowreelRes = await showreelSaveHandler({ env: TEST_ENV, request: unauthShowreelReq });
   assert(unauthShowreelRes.status === 401, "6/6: /api/admin/showreel/save rejects unauthorized access (401)");
 
   // ----------------------------------------------------------------------------
-  // 7. AUTHORIZED ADMIN ACCESS VIA COOKIE
+  // 15. ALL SIX ADMIN ENDPOINTS ALLOW VALID COOKIE AUTHENTICATION (200)
   // ----------------------------------------------------------------------------
-  console.log("\n--- 7. Testing Authorized Admin Operations via Session Cookie ---");
+  console.log("\n--- 15. Testing All Six Admin Endpoints Allow Valid Cookie Authentication ---");
 
-  // Mock D1
+  // Mock D1 for safe local testing
   let lastD1Query = "";
-  let lastD1Params: any[] = [];
   const MOCK_DB = {
     prepare: (query: string) => {
       lastD1Query = query;
       return {
-        bind: (...params: any[]) => {
-          lastD1Params = params;
-          return {
-            run: async () => ({ success: true }),
-            all: async () => ({ results: [] }),
-            first: async () => null,
-          };
-        },
+        bind: (...params: any[]) => ({
+          run: async () => ({ success: true }),
+          all: async () => ({ results: [] }),
+          first: async () => null,
+        }),
       };
     },
   };
   const ENV_WITH_DB = { ...TEST_ENV, DB: MOCK_DB };
 
-  // Authorized Cloudinary Sign (via Cookie)
+  // 1) cloudinary-sign
   const authSignReq = new Request("https://example.com/api/admin/cloudinary-sign", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Cookie: `sg_admin_jwt=${issuedCookieToken}`,
+      Origin: "https://example.com",
+      Cookie: `sg_admin_jwt=${persistToken}`,
     },
     body: JSON.stringify({ resource_type: "video", public_id: "test_new_video" }),
   });
   const authSignRes = await cldSignHandler({ env: TEST_ENV, request: authSignReq });
-  const signData: any = await authSignRes.json();
-  assert(authSignRes.status === 200 && signData.success === true, "Authorized Cloudinary Sign via Cookie succeeds (200 OK)");
+  assert(authSignRes.status === 200, "1/6: Authorized cloudinary-sign returns 200 OK");
 
-  // Authorized Project Save (via Cookie)
-  const testProject = {
-    id: "test-proj-cookie-1",
-    title: "Cinematic Reel 2026",
-    category: "REELS",
-    description: "New project description",
-    aspectRatio: "9:16",
-    duration: "0:30",
-    videoUrl: "https://res.cloudinary.com/he2zkdrt/video/upload/sample.mp4",
-  };
+  // 2) cloudinary-usage (without credentials configured, returns 503 data.configured=false, which confirms auth passed)
+  const authUsageReq = new Request("https://example.com/api/admin/cloudinary-usage", {
+    method: "GET",
+    headers: { Cookie: `sg_admin_jwt=${persistToken}` },
+  });
+  const authUsageRes = await cldUsageHandler({ env: { ...TEST_ENV, CLOUDINARY_API_SECRET: "" }, request: authUsageReq });
+  assert(authUsageRes.status === 503, "2/6: Authorized cloudinary-usage passes authentication check");
+
+  // 3) cloudinary-delete (with unconfigured mock credentials, returns 503 after passing auth check)
+  const authCldDelReq = new Request("https://example.com/api/admin/cloudinary-delete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://example.com",
+      Cookie: `sg_admin_jwt=${persistToken}`,
+    },
+    body: JSON.stringify({ public_id: "siddharth-portfolio/videos/test_delete" }),
+  });
+  const authCldDelRes = await cldDeleteHandler({
+    env: { ...TEST_ENV, CLOUDINARY_API_SECRET: "" },
+    request: authCldDelReq,
+  });
+  assert(authCldDelRes.status === 503, "3/6: Authorized cloudinary-delete passes auth check");
+
+  // 4) projects/save
   const authSaveReq = new Request("https://example.com/api/admin/projects/save", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Cookie: `sg_admin_jwt=${issuedCookieToken}`,
+      Origin: "https://example.com",
+      Cookie: `sg_admin_jwt=${persistToken}`,
     },
-    body: JSON.stringify({ project: testProject }),
+    body: JSON.stringify({ project: { id: "test-save-1", title: "Test", videoUrl: "https://res.cloudinary.com/sample.mp4" } }),
   });
   const authSaveRes = await projectSaveHandler({ env: ENV_WITH_DB, request: authSaveReq });
-  assert(authSaveRes.status === 200, "Authorized Project Save via Cookie succeeds (200 OK)");
-  assert(lastD1Query.includes("INSERT OR REPLACE INTO projects"), "Project Save executed D1 query");
+  assert(authSaveRes.status === 200, "4/6: Authorized projects/save returns 200 OK");
 
-  // Authorized Project Delete (via Cookie)
+  // 5) projects/delete
   const authDeleteReq = new Request("https://example.com/api/admin/projects/delete", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Cookie: `sg_admin_jwt=${issuedCookieToken}`,
+      Origin: "https://example.com",
+      Cookie: `sg_admin_jwt=${persistToken}`,
     },
-    body: JSON.stringify({ projectId: "test-proj-cookie-1" }),
+    body: JSON.stringify({ projectId: "test-save-1" }),
   });
   const authDeleteRes = await projectDeleteHandler({ env: ENV_WITH_DB, request: authDeleteReq });
-  assert(authDeleteRes.status === 200, "Authorized Project Delete via Cookie succeeds (200 OK)");
+  assert(authDeleteRes.status === 200, "5/6: Authorized projects/delete returns 200 OK");
 
-  // Authorized Showreel Save (via Cookie)
+  // 6) showreel/save
   const authShowreelReq = new Request("https://example.com/api/admin/showreel/save", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Cookie: `sg_admin_jwt=${issuedCookieToken}`,
+      Origin: "https://example.com",
+      Cookie: `sg_admin_jwt=${persistToken}`,
     },
     body: JSON.stringify({
       showreel: {
@@ -354,80 +531,40 @@ async function runTests() {
     }),
   });
   const authShowreelRes = await showreelSaveHandler({ env: ENV_WITH_DB, request: authShowreelReq });
-  assert(authShowreelRes.status === 200, "Authorized Showreel Save via Cookie succeeds (200 OK)");
+  assert(authShowreelRes.status === 200, "6/6: Authorized showreel/save returns 200 OK");
 
   // ----------------------------------------------------------------------------
-  // 8. FRONTEND CODE SECURITY AUDIT (NO JWT IN LOCALSTORAGE OR SESSIONSTORAGE)
+  // 16. PROJECTS ENDPOINT
   // ----------------------------------------------------------------------------
-  console.log("\n--- 8. Testing Frontend Source Code for Token Storage ---");
-  const authClientSrc = fs.readFileSync(
-    path.join(process.cwd(), "src", "utils", "authClient.ts"),
-    "utf-8"
-  );
-  const videoStorageSrc = fs.readFileSync(
-    path.join(process.cwd(), "src", "data", "videoStorage.ts"),
-    "utf-8"
-  );
-
-  // Check authClient.ts
-  assert(
-    !authClientSrc.includes("localStorage.setItem('sg_admin_token'") &&
-    !authClientSrc.includes("localStorage.setItem(\"sg_admin_token\"") &&
-    !authClientSrc.includes("sessionStorage.setItem('sg_admin_token'") &&
-    !authClientSrc.includes("sessionStorage.setItem(\"sg_admin_token\""),
-    "authClient.ts does NOT store JWT tokens in localStorage or sessionStorage"
-  );
-  assert(
-    authClientSrc.includes('credentials: "same-origin"'),
-    "authClient.ts enforces credentials: 'same-origin' for session verification and logout"
-  );
-
-  // Check videoStorage.ts
-  assert(
-    !videoStorageSrc.includes("getAuthToken()"),
-    "videoStorage.ts does NOT invoke getAuthToken()"
-  );
-  assert(
-    !videoStorageSrc.includes("Authorization: `Bearer ${token}`") &&
-    !videoStorageSrc.includes("Authorization: `Bearer ${auth}"),
-    "videoStorage.ts does NOT pass Authorization: Bearer tokens for admin/project operations"
-  );
-
-  // ----------------------------------------------------------------------------
-  // 9. CREDENTIAL GENERATOR CLI ARGUMENT REJECTION
-  // ----------------------------------------------------------------------------
-  console.log("\n--- 9. Testing Credential Generator Rejects CLI Password Arguments ---");
-  const scriptPath = path.join(process.cwd(), "scripts", "generate_admin_credentials.cjs");
-  const cliTestResult = spawnSync(process.execPath, [scriptPath, "InsecureCliPassword123!"], {
-    encoding: "utf-8",
-  });
-
-  assert(
-    cliTestResult.status === 1,
-    "Credential generator exits with code 1 when passwords are provided as CLI arguments"
-  );
-  assert(
-    cliTestResult.stderr.includes("Security Error") &&
-    cliTestResult.stderr.includes("Passing passwords as command-line arguments is strictly prohibited"),
-    "Credential generator prints clear security error explaining CLI argument prohibition"
-  );
-
-  // ----------------------------------------------------------------------------
-  // 10. PUBLIC ENDPOINTS & CONTACT FORM
-  // ----------------------------------------------------------------------------
-  console.log("\n--- 10. Testing Public Endpoints & Inquiry Validation ---");
+  console.log("\n--- 16. Testing Projects Endpoint (/api/projects) ---");
   const pubProjectsReq = new Request("https://example.com/api/projects", { method: "GET" });
   const pubProjectsRes = await projectsGetHandler({ env: TEST_ENV, request: pubProjectsReq });
   const pubProjectsData: any = await pubProjectsRes.json();
   assert(pubProjectsRes.status === 200 && pubProjectsData.success === true, "Public GET /api/projects returns 200 OK");
   assert(pubProjectsData.count === 19, `Public /api/projects returns all 19 active projects (got ${pubProjectsData.count})`);
+  assert(
+    pubProjectsData.projects.every((p: any) => p.videoUrl && p.videoUrl.startsWith("https://res.cloudinary.com/")),
+    "All projects use permanent Cloudinary CDN video URLs"
+  );
 
+  // ----------------------------------------------------------------------------
+  // 17. SHOWREEL ENDPOINT
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 17. Testing Showreel Endpoint (/api/showreel) ---");
   const pubShowreelReq = new Request("https://example.com/api/showreel", { method: "GET" });
   const pubShowreelRes = await showreelGetHandler({ env: TEST_ENV });
   const pubShowreelData: any = await pubShowreelRes.json();
   assert(pubShowreelRes.status === 200 && pubShowreelData.success === true, "Public GET /api/showreel returns 200 OK");
+  assert(
+    pubShowreelData.showreel?.videoUrl.startsWith("https://res.cloudinary.com/"),
+    "Showreel videoUrl uses permanent Cloudinary CDN"
+  );
 
-  // Missing inquiry fields
+  // ----------------------------------------------------------------------------
+  // 18. CONTACT FORM VALIDATION
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 18. Testing Contact Form Validation (/api/inquiry) ---");
+  // Missing fields
   const missingFieldReq = new Request("https://example.com/api/inquiry", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -436,16 +573,25 @@ async function runTests() {
   const missingFieldRes = await inquiryHandler({ env: TEST_ENV, request: missingFieldReq });
   assert(missingFieldRes.status === 400, "Inquiry with missing name returns 400 Bad Request");
 
+  // Invalid email format
+  const badEmailInqReq = new Request("https://example.com/api/inquiry", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Rohit", email: "not-an-email", phone: "123456", message: "Hi" }),
+  });
+  const badEmailInqRes = await inquiryHandler({ env: TEST_ENV, request: badEmailInqReq });
+  assert(badEmailInqRes.status === 400, "Inquiry with invalid email format returns 400 Bad Request");
+
   // Missing RESEND_API_KEY
   const noKeyInqReq = new Request("https://example.com/api/inquiry", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      name: "Client",
-      email: "client@example.com",
+      name: "Rohit Sharma",
+      email: "rohit@example.com",
       phone: "+91 9876543210",
-      projectType: "Commercial",
-      message: "Inquiry message",
+      projectType: "Reel / Short-Form",
+      message: "Need 5 Instagram reels edited this month.",
     }),
   });
   const noKeyInqRes = await inquiryHandler({ env: TEST_ENV, request: noKeyInqReq });

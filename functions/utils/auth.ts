@@ -5,7 +5,8 @@
  */
 
 export const AUTHORIZED_OWNER_EMAIL = "girasejitendra249@gmail.com";
-export const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+export const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours (normal session)
+export const REMEMBER_ME_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days (extended session)
 
 export interface SessionPayload {
   email: string;
@@ -76,18 +77,23 @@ export async function hashPassword(password: string, salt: string): Promise<stri
     .join("");
 }
 
-// HMAC-SHA256 Token Signing
-export async function createSessionToken(email: string, secret: string | null): Promise<string> {
+// HMAC-SHA256 Token Signing with consistent expiration
+export async function createSessionToken(
+  email: string,
+  secret: string | null,
+  persist: boolean = false
+): Promise<string> {
   if (!secret || typeof secret !== "string" || secret.trim().length === 0) {
     throw new Error("Cannot sign session token: Missing canonical ADMIN_JWT_SECRET.");
   }
 
+  const ttl = persist ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
   const enc = new TextEncoder();
   const payload: SessionPayload = {
     email: email.toLowerCase(),
     role: "owner",
     issuedAt: Date.now(),
-    expiresAt: Date.now() + SESSION_TTL_MS,
+    expiresAt: Date.now() + ttl,
     sessionId: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
   };
 
@@ -175,49 +181,131 @@ export function extractCookieToken(request: Request): string | null {
   return null;
 }
 
-// Full Request Verification Guard for Cloudflare Pages Functions
-export async function verifyAdminRequest(context: {
-  request: Request;
-  env: AuthEnv;
-}): Promise<{ authorized: boolean; email?: string; errorResponse?: Response }> {
-  // 1. Same-Origin / CSRF validation for state-changing methods
-  const method = context.request.method.toUpperCase();
-  if (["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
-    const secFetchSite = context.request.headers.get("Sec-Fetch-Site");
-    if (secFetchSite === "cross-site") {
+// Strict Same-Origin / CSRF Guard
+// Validates complete origin (protocol + host + port), rejects cross-site, and verifies state-changing requests
+export function validateSameOrigin(request: Request): { valid: boolean; errorResponse?: Response } {
+  // 1. Sec-Fetch-Site check
+  const secFetchSite = request.headers.get("Sec-Fetch-Site");
+  if (secFetchSite === "cross-site") {
+    return {
+      valid: false,
+      errorResponse: new Response(
+        JSON.stringify({
+          success: false,
+          status: 403,
+          message: "Forbidden: Cross-site request rejected.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      ),
+    };
+  }
+
+  let reqUrl: URL;
+  try {
+    reqUrl = new URL(request.url);
+  } catch {
+    return {
+      valid: false,
+      errorResponse: new Response(
+        JSON.stringify({ success: false, status: 400, message: "Invalid request URL." }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      ),
+    };
+  }
+
+  const origin = request.headers.get("Origin");
+  const method = request.method.toUpperCase();
+  const isStateChanging = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
+
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      // Strictly compare complete origins: protocol, hostname, and port
+      if (originUrl.origin !== reqUrl.origin) {
+        return {
+          valid: false,
+          errorResponse: new Response(
+            JSON.stringify({
+              success: false,
+              status: 403,
+              message: "Forbidden: Cross-origin request rejected.",
+            }),
+            { status: 403, headers: { "Content-Type": "application/json" } }
+          ),
+        };
+      }
+    } catch {
       return {
-        authorized: false,
+        valid: false,
         errorResponse: new Response(
           JSON.stringify({
             success: false,
             status: 403,
-            message: "Forbidden: Cross-site request rejected.",
+            message: "Forbidden: Invalid Origin header.",
           }),
           { status: 403, headers: { "Content-Type": "application/json" } }
         ),
       };
     }
-
-    const origin = context.request.headers.get("Origin");
-    if (origin) {
+  } else if (isStateChanging) {
+    // On state-changing requests where Origin is omitted, verify Referer
+    const referer = request.headers.get("Referer");
+    if (referer) {
       try {
-        const reqUrl = new URL(context.request.url);
-        const originUrl = new URL(origin);
-        if (originUrl.host !== reqUrl.host) {
+        const refererUrl = new URL(referer);
+        if (refererUrl.origin !== reqUrl.origin) {
           return {
-            authorized: false,
+            valid: false,
             errorResponse: new Response(
               JSON.stringify({
                 success: false,
                 status: 403,
-                message: "Forbidden: Cross-origin request rejected.",
+                message: "Forbidden: Cross-origin referer rejected.",
               }),
               { status: 403, headers: { "Content-Type": "application/json" } }
             ),
           };
         }
-      } catch {}
+      } catch {
+        return {
+          valid: false,
+          errorResponse: new Response(
+            JSON.stringify({
+              success: false,
+              status: 403,
+              message: "Forbidden: Invalid Referer header.",
+            }),
+            { status: 403, headers: { "Content-Type": "application/json" } }
+          ),
+        };
+      }
+    } else {
+      return {
+        valid: false,
+        errorResponse: new Response(
+          JSON.stringify({
+            success: false,
+            status: 403,
+            message: "Forbidden: Missing Origin header on state-changing request.",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        ),
+      };
     }
+  }
+
+  return { valid: true };
+}
+
+// Full Request Verification Guard for Cloudflare Pages Functions
+export async function verifyAdminRequest(context: {
+  request: Request;
+  env: AuthEnv;
+}): Promise<{ authorized: boolean; email?: string; errorResponse?: Response }> {
+  // 1. Strict Same-Origin / CSRF validation
+  const originCheck = validateSameOrigin(context.request);
+  if (!originCheck.valid) {
+    return { authorized: false, errorResponse: originCheck.errorResponse };
   }
 
   // 2. Secret configuration validation (FAIL CLOSED)

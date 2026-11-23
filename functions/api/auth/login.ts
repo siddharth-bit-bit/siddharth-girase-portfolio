@@ -8,11 +8,18 @@ import {
   createSessionToken,
   getSecret,
   hashPassword,
+  validateSameOrigin,
   type AuthEnv,
 } from "../../utils/auth.ts";
 
 export const onRequestPost = async (context: { env: AuthEnv; request: Request }) => {
   try {
+    // 1. Same-Origin / CSRF Validation
+    const originCheck = validateSameOrigin(context.request);
+    if (!originCheck.valid) {
+      return originCheck.errorResponse!;
+    }
+
     const body = (await context.request.json().catch(() => ({}))) as any;
     const email = (body.email || "").trim().toLowerCase();
     const password = body.password || "";
@@ -99,7 +106,7 @@ export const onRequestPost = async (context: { env: AuthEnv; request: Request })
       );
     }
 
-    const token = await createSessionToken(email, secret);
+    const token = await createSessionToken(email, secret, persist);
     const maxAge = persist ? 30 * 24 * 60 * 60 : 24 * 60 * 60; // 30 days or 1 day
 
     const cookieHeader = `sg_admin_jwt=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
