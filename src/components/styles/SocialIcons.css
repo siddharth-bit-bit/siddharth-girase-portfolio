@@ -1,0 +1,167 @@
+.icons-section {
+  position: fixed;
+  max-width: var(--cMaxWidth);
+  width: var(--cWidth);
+  bottom: 0;
+  z-index: 99;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.social-icons {
+  position: absolute;
+  left: 0;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 999;
+  padding: 10px;
+  pointer-events: auto;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+              visibility 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform, visibility;
+}
+
+.social-icons.social-hidden {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transform: translateY(22px) !important;
+}
+
+.social-icons.social-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.social-icons:hover {
+  transition: 0.3s;
+  color: var(--backgroundColor);
+}
+
+.social-icons a:hover,
+.social-icons a:focus-visible,
+.social-icons a:active {
+  color: #c2a4ff;
+  filter: drop-shadow(0 0 10px rgba(194, 164, 255, 0.8));
+}
+
+.social-icons span {
+  width: 44px;
+  height: 44px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.social-icons a {
+  --siLeft: 50%;
+  --siTop: 50%;
+  position: absolute;
+  left: var(--siLeft, 50%);
+  top: var(--siTop, 50%);
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: #a49db2;
+  will-change: left, top;
+  transition: color 0.25s ease, filter 0.25s ease;
+  text-decoration: none;
+}
+
+.resume-button {
+  position: absolute;
+  z-index: 99;
+  display: flex;
+  gap: 5px;
+  bottom: 40px;
+  right: 0;
+  width: auto;
+  text-wrap: nowrap;
+  letter-spacing: 4px;
+  font-size: 15px;
+  line-height: 15px;
+  font-weight: 600;
+  color: #a49db2;
+  cursor: pointer;
+  transition: 0.5s;
+  transform-origin: left bottom;
+  transform: translateX(100%) rotateZ(-90deg);
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  padding: 0;
+  pointer-events: auto;
+}
+
+.resume-button:hover {
+  color: #c2a4ff;
+}
+
+.resume-button span {
+  color: #c2a4ff;
+  font-size: 17px;
+  margin-top: -1px;
+  display: flex;
+  align-items: center;
+}
+
+.check-line {
+  position: fixed;
+  top: 655px;
+  left: 0;
+  height: 1px;
+  background-color: #ffffff;
+  width: 100%;
+  z-index: 99999;
+}
+
+@media only screen and (min-width: 900px) {
+  .social-icons {
+    position: fixed;
+    left: 28px;
+    bottom: 28px;
+    gap: 18px;
+  }
+  .social-icons a {
+    font-size: 26px;
+  }
+}
+
+@media only screen and (max-width: 899px) {
+  .social-icons {
+    left: 4px;
+    bottom: 16px;
+    gap: 10px;
+  }
+  .social-icons span {
+    width: 38px;
+    height: 38px;
+  }
+  .social-icons a {
+    font-size: 22px;
+  }
+}
+
+@media only screen and (min-width: 768px) {
+  .resume-button {
+    transform: none;
+    font-size: 20px;
+    line-height: 20px;
+  }
+  div.resume-button span {
+    font-size: 23px;
+    margin-top: -1.5px;
+  }
+}

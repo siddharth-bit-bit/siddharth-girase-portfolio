@@ -1,0 +1,423 @@
+.about-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  place-items: center;
+  position: relative;
+  opacity: 1;
+  height: auto;
+  width: var(--cWidth);
+  margin: auto;
+  padding: 80px 0;
+  gap: 40px;
+}
+
+/* =========================================================================
+   About 3D Cinema Camera Showcase Column
+   ========================================================================= */
+.about-visual-col {
+  width: 44%;
+  max-width: 520px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+  min-height: 480px;
+}
+
+.about-camera-showcase {
+  position: relative;
+  width: 100%;
+  height: 480px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+}
+
+/* Subtle, diffuse studio ambient backdrop (replaces harsh circular glow blob) */
+.about-camera-studio-glow {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  max-width: 440px;
+  max-height: 440px;
+  background: radial-gradient(
+    ellipse at 50% 55%,
+    rgba(147, 51, 234, 0.08) 0%,
+    rgba(168, 85, 247, 0.03) 45%,
+    transparent 70%
+  );
+  filter: blur(35px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Natural soft floor contact shadow beneath the gimbal base */
+.about-camera-floor-shadow {
+  position: absolute;
+  bottom: 30px;
+  width: 250px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse,
+    rgba(0, 0, 0, 0.65) 0%,
+    rgba(18, 10, 30, 0.35) 45%,
+    transparent 75%
+  );
+  filter: blur(8px);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.about-camera-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  cursor: grab;
+}
+
+.about-camera-canvas:active {
+  cursor: grabbing;
+}
+
+.about-me {
+  padding: 40px 0px;
+  width: 500px;
+  max-width: calc(100% - 15px);
+}
+
+.about-me h3 {
+  font-size: 24px;
+  text-transform: uppercase;
+  letter-spacing: 5px;
+  font-weight: 500;
+  color: var(--accentColor);
+  margin-bottom: 20px;
+}
+
+.about-me p.para {
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 36px;
+  letter-spacing: 0.5px;
+  color: #eae5ec;
+  margin-bottom: 30px;
+}
+
+.about-details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 30px;
+}
+
+.about-detail-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.detail-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #a7a0b2;
+  margin-bottom: 3px;
+}
+
+.detail-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.detail-icon {
+  color: #c2a4ff;
+  font-size: 13px;
+}
+
+/* Video Editing Timeline Visualizer */
+.editor-timeline-visual {
+  background: #09060f;
+  border: 1px solid rgba(194, 164, 255, 0.2);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  position: relative;
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+
+.timeline-timecode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: monospace;
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: #c2a4ff;
+}
+
+.rec-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: recBlink 1.2s infinite;
+}
+
+@keyframes recBlink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.timeline-tools {
+  display: flex;
+  gap: 10px;
+}
+
+.tool-icon {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #a49db2;
+}
+
+.tool-icon.active {
+  background: rgba(194, 164, 255, 0.15);
+  color: #c2a4ff;
+  border: 1px solid rgba(194, 164, 255, 0.3);
+}
+
+.timeline-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  left: 35%;
+  height: 100%;
+  width: 2px;
+  background: #ff4d6d;
+  z-index: 10;
+  pointer-events: none;
+  animation: playheadSweep 8s infinite linear;
+}
+
+.playhead-marker {
+  width: 10px;
+  height: 10px;
+  background: #ff4d6d;
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+
+@keyframes playheadSweep {
+  0% {
+    left: 10%;
+  }
+  100% {
+    left: 90%;
+  }
+}
+
+.track-row {
+  display: flex;
+  align-items: center;
+  position: relative;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+.track-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #7b7486;
+  width: 22px;
+  flex-shrink: 0;
+  font-family: monospace;
+}
+
+.clip-block {
+  position: absolute;
+  height: 18px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.clip-fx {
+  background: linear-gradient(90deg, #ec4899 0%, #d946ef 100%);
+}
+
+.clip-main {
+  background: linear-gradient(90deg, #7c3aed 0%, #6366f1 100%);
+}
+
+.clip-audio {
+  background: linear-gradient(90deg, #059669 0%, #10b981 100%);
+}
+
+.clip-music {
+  background: linear-gradient(90deg, #0284c7 0%, #06b6d4 100%);
+}
+
+.wave-icon {
+  letter-spacing: -1px;
+}
+
+/* Stats Row */
+.about-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.stat-card {
+  text-align: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px 6px;
+  transition: all 0.25s ease;
+}
+
+.stat-card:hover {
+  background: rgba(194, 164, 255, 0.08);
+  border-color: rgba(194, 164, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.stat-card h4 {
+  margin: 0 0 4px 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #c2a4ff;
+  letter-spacing: 0.5px;
+}
+
+.stat-card p {
+  margin: 0;
+  font-size: 11px;
+  color: #a49db2;
+}
+
+@media only screen and (min-width: 1025px) {
+  .about-section {
+    width: var(--cWidth);
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1920px;
+    min-height: var(--vh);
+    padding: 80px 0;
+    opacity: 1;
+    gap: 50px;
+  }
+  .about-visual-col {
+    width: 44%;
+    max-width: 520px;
+    display: flex;
+  }
+  .about-me {
+    padding: 0px;
+    width: 52%;
+  }
+  .about-me p.para {
+    font-size: 1.5vw;
+    line-height: 2.1vw;
+  }
+}
+
+@media only screen and (max-width: 1024px) {
+  .about-section {
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px 0;
+    gap: 35px;
+  }
+  .about-visual-col {
+    width: 100%;
+    max-width: 440px;
+    min-height: 360px;
+  }
+  .about-camera-showcase {
+    height: 360px;
+  }
+  .about-camera-studio-glow {
+    max-width: 320px;
+    max-height: 320px;
+  }
+  .about-camera-floor-shadow {
+    bottom: 20px;
+    width: 200px;
+  }
+  .about-me {
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+  }
+}
+
+@media only screen and (max-width: 600px) {
+  .about-camera-showcase {
+    height: 300px;
+  }
+  .about-camera-floor-shadow {
+    bottom: 15px;
+    width: 170px;
+  }
+  .about-details-grid {
+    grid-template-columns: 1fr;
+  }
+  .about-stats-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .about-me p.para {
+    font-size: 18px;
+    line-height: 28px;
+  }
+}
