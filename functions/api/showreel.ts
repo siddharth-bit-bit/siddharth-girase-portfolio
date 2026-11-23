@@ -1,7 +1,7 @@
 // Cloudflare Pages Function: /api/showreel
 // Serves showreel details from Cloudflare D1 with automatic fallback to verified Cloudinary media
 
-import staticShowreel from "../../api/showreel_data.json" with { type: "json" };
+import staticShowreel from "../../api/showreel_data.json";
 
 interface Env {
   DB?: any;

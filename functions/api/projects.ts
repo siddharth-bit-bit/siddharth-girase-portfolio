@@ -1,7 +1,7 @@
 // Cloudflare Pages Function: /api/projects
 // Serves public projects from Cloudflare D1 with automatic fallback to static Cloudinary project data
 
-import staticProjects from "../../api/projects_data.json" with { type: "json" };
+import staticProjects from "../../api/projects_data.json";
 
 interface Env {
   DB?: any;
