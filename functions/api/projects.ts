@@ -1,6 +1,6 @@
 // Cloudflare Pages Function: /api/projects
 // Serves public projects from Cloudflare D1 with automatic fallback to static Cloudinary project data
-
+// Standard JSON import verified for Wrangler 3.114.17 compatibility
 import staticProjects from "../../api/projects_data.json";
 
 interface Env {

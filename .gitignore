@@ -43,3 +43,4 @@ public/uploads/thumbnails/
 staging/
 *.bak
 .wrangler/
+_worker.bundle
