@@ -1,0 +1,14 @@
+# Cloudflare Pages Caching Headers
+# Ensure HTML is revalidated so new deployments take effect immediately on all devices
+/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Immutable long-term caching for content-hashed assets
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Draco and 3D Model assets
+/models/*
+  Cache-Control: public, max-age=86400
+/draco/*
+  Cache-Control: public, max-age=604800
