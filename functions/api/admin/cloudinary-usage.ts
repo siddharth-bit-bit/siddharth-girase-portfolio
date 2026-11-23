@@ -112,7 +112,6 @@ export const onRequestGet = async (context: { env: CldEnv; request: Request }) =
         headers: {
           "Content-Type": "application/json",
           "Cache-Control": "private, max-age=30",
-          "Access-Control-Allow-Origin": "*",
         },
       }
     );

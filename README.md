@@ -43,9 +43,9 @@ cp .env.example .env
 ### 3. Generate Secure Admin Credentials
 Run the credential generator to create your unique password hash, salt, and JWT secret:
 ```bash
-node scripts/generate_admin_credentials.cjs "YourNewSecurePassword"
+node scripts/generate_admin_credentials.cjs
 ```
-Copy the generated values to your `.env` (for local development) and to Cloudflare Pages Environment Variables (for production deployment).
+Follow the hidden interactive prompt to enter and confirm your password. Copy the generated values to your `.env` (for local development) and to Cloudflare Pages Environment Variables (for production deployment).
 
 ### 4. Run Development Server
 ```bash

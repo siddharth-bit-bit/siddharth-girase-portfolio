@@ -7,7 +7,6 @@ declare const process: any;
 export const AUTHORIZED_OWNER_EMAIL = "girasejitendra249@gmail.com";
 const AUTH_STORE_PATH = path.join(process.cwd(), "api", ".auth_store.json");
 const AUDIT_LOG_PATH = path.join(process.cwd(), "api", "audit.log");
-const SERVER_SECRET_PATH = path.join(process.cwd(), "api", ".server_secret");
 
 // Session configuration
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -38,22 +37,10 @@ export interface AuditLogEntry {
   details?: string;
 }
 
-// Ensure server secret exists (canonical ADMIN_JWT_SECRET, local secret file, or FAIL CLOSED)
+// Canonical session secret: strictly fails closed if ADMIN_JWT_SECRET is missing
 function getServerSecret(): string | null {
-  try {
-    if (process.env.ADMIN_JWT_SECRET?.trim()) {
-      return process.env.ADMIN_JWT_SECRET.trim();
-    }
-    if (fs.existsSync(SERVER_SECRET_PATH)) {
-      const stored = fs.readFileSync(SERVER_SECRET_PATH, "utf-8").trim();
-      if (stored.length > 0) return stored;
-    }
-    const generated = crypto.randomBytes(48).toString("hex");
-    fs.writeFileSync(SERVER_SECRET_PATH, generated, { encoding: "utf-8" });
-    return generated;
-  } catch {
-    return null;
-  }
+  const secret = (process.env.ADMIN_JWT_SECRET || "").trim();
+  return secret.length > 0 ? secret : null;
 }
 
 // Log security audit trail
@@ -130,7 +117,7 @@ interface AuthStore {
 }
 
 function getAuthStore(): AuthStore | null {
-  // 1. Prefer canonical environment variables
+  // Strictly enforce canonical environment variables (FAIL CLOSED)
   if (process.env.ADMIN_SALT?.trim() && process.env.ADMIN_PASSWORD_HASH?.trim()) {
     return {
       email: AUTHORIZED_OWNER_EMAIL,
@@ -140,17 +127,7 @@ function getAuthStore(): AuthStore | null {
     };
   }
 
-  // 2. Check local secure auth store if present
-  if (fs.existsSync(AUTH_STORE_PATH)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(AUTH_STORE_PATH, "utf-8"));
-      if (data.email && data.passwordHash && data.salt) {
-        return data;
-      }
-    } catch {}
-  }
-
-  // FAIL CLOSED: Never use hardcoded default passwords
+  // FAIL CLOSED: Never use hardcoded default passwords or fallback storage
   return null;
 }
 

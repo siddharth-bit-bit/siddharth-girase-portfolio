@@ -64,7 +64,6 @@ export const onRequestPost = async (context: { env: AuthEnv; request: Request })
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
         },
       }
     );

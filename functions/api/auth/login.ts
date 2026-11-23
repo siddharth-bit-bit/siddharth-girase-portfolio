@@ -1,6 +1,7 @@
 // Cloudflare Pages Function: /api/auth/login
-// Secure owner authentication endpoint with PBKDF2 password hashing and signed JWT session tokens
+// Secure owner authentication endpoint with PBKDF2 password hashing and HttpOnly session cookies
 // FAILS CLOSED when environment variables are missing. Never uses default credentials.
+// The session token is transmitted EXCLUSIVELY via HttpOnly cookie; NEVER returned in JSON.
 
 import {
   AUTHORIZED_OWNER_EMAIL,
@@ -79,7 +80,7 @@ export const onRequestPost = async (context: { env: AuthEnv; request: Request })
         JSON.stringify({
           success: false,
           status: 500,
-          message: "Server configuration error: Admin session signing secret is not configured.",
+          message: "Server configuration error: ADMIN_JWT_SECRET is not configured.",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
@@ -103,12 +104,12 @@ export const onRequestPost = async (context: { env: AuthEnv; request: Request })
 
     const cookieHeader = `sg_admin_jwt=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
 
+    // SECURITY: The token is NEVER exposed in the JSON payload
     return new Response(
       JSON.stringify({
         success: true,
         status: 200,
         message: "Authentication successful. Welcome, Siddharth!",
-        token,
         owner: {
           name: "Siddharth Girase",
           email: AUTHORIZED_OWNER_EMAIL,
@@ -120,7 +121,6 @@ export const onRequestPost = async (context: { env: AuthEnv; request: Request })
         headers: {
           "Content-Type": "application/json",
           "Set-Cookie": cookieHeader,
-          "Access-Control-Allow-Origin": "*",
         },
       }
     );

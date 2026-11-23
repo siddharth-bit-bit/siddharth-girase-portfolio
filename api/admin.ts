@@ -29,8 +29,12 @@ export function requireOwnerAuth(authHeader: string | undefined, ip: string): {
   email?: string;
   errorResponse?: AdminApiResponse;
 } {
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    logAudit("UNAUTHORIZED_ACCESS_ATTEMPT", ip, "DENIED", undefined, "Missing Bearer token");
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.substring(7).trim()
+    : authHeader?.trim();
+
+  if (!token) {
+    logAudit("UNAUTHORIZED_ACCESS_ATTEMPT", ip, "DENIED", undefined, "Missing session token");
     return {
       authorized: false,
       errorResponse: {
@@ -41,7 +45,6 @@ export function requireOwnerAuth(authHeader: string | undefined, ip: string): {
     };
   }
 
-  const token = authHeader.substring(7).trim();
   const verification = verifySessionToken(token);
 
   if (!verification.valid || !verification.payload) {

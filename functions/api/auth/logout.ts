@@ -14,7 +14,6 @@ export const onRequest = async () => {
       headers: {
         "Content-Type": "application/json",
         "Set-Cookie": expiredCookie,
-        "Access-Control-Allow-Origin": "*",
       },
     }
   );

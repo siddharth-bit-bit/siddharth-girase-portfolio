@@ -93,7 +93,7 @@ export const onRequestPost = async (context: { env: CldEnv; request: Request }) 
       }),
       {
         status: res.ok ? 200 : res.status,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        headers: { "Content-Type": "application/json" },
       }
     );
   } catch (err: any) {

@@ -1,6 +1,7 @@
 /**
  * Cloudflare Pages Functions Authentication & Security Helper
- * Uses standard Web Crypto APIs (crypto.subtle) compatible with Cloudflare Workers / Pages
+ * Enforces strict HttpOnly cookie-based session verification with Web Crypto APIs.
+ * FAILS CLOSED when ADMIN_JWT_SECRET is missing. Never uses fallback secrets.
  */
 
 export const AUTHORIZED_OWNER_EMAIL = "girasejitendra249@gmail.com";
@@ -16,7 +17,6 @@ export interface SessionPayload {
 
 export interface AuthEnv {
   ADMIN_JWT_SECRET?: string;
-  ADMIN_SECRET?: string;
   ADMIN_PASSWORD_HASH?: string;
   ADMIN_SALT?: string;
   DB?: any;
@@ -45,7 +45,7 @@ function base64UrlDecode(str: string): Uint8Array {
 
 // Canonical Session Signing Secret: FAILS CLOSED if unconfigured
 export function getSecret(env: AuthEnv): string | null {
-  const secret = (env.ADMIN_JWT_SECRET || env.ADMIN_SECRET || "").trim();
+  const secret = (env.ADMIN_JWT_SECRET || "").trim();
   return secret.length > 0 ? secret : null;
 }
 
@@ -163,21 +163,15 @@ export async function verifySessionToken(
   }
 }
 
-// Extract token from Request (Bearer header, Cookie, or JSON body)
-export function extractToken(request: Request): string | null {
-  const authHeader = request.headers.get("Authorization") || request.headers.get("authorization");
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    return authHeader.substring(7).trim();
-  }
-
+// Strict Cookie Extraction ONLY — Authorization headers and body tokens are disallowed
+export function extractCookieToken(request: Request): string | null {
   const cookieHeader = request.headers.get("Cookie") || request.headers.get("cookie");
   if (cookieHeader) {
     const match = cookieHeader.match(/(?:^|;\s*)sg_admin_jwt=([^;]+)/);
     if (match) {
-      return decodeURIComponent(match[1]);
+      return decodeURIComponent(match[1].trim());
     }
   }
-
   return null;
 }
 
@@ -186,9 +180,48 @@ export async function verifyAdminRequest(context: {
   request: Request;
   env: AuthEnv;
 }): Promise<{ authorized: boolean; email?: string; errorResponse?: Response }> {
-  const secret = getSecret(context.env);
+  // 1. Same-Origin / CSRF validation for state-changing methods
+  const method = context.request.method.toUpperCase();
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
+    const secFetchSite = context.request.headers.get("Sec-Fetch-Site");
+    if (secFetchSite === "cross-site") {
+      return {
+        authorized: false,
+        errorResponse: new Response(
+          JSON.stringify({
+            success: false,
+            status: 403,
+            message: "Forbidden: Cross-site request rejected.",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        ),
+      };
+    }
 
-  // FAIL CLOSED if session secret is missing
+    const origin = context.request.headers.get("Origin");
+    if (origin) {
+      try {
+        const reqUrl = new URL(context.request.url);
+        const originUrl = new URL(origin);
+        if (originUrl.host !== reqUrl.host) {
+          return {
+            authorized: false,
+            errorResponse: new Response(
+              JSON.stringify({
+                success: false,
+                status: 403,
+                message: "Forbidden: Cross-origin request rejected.",
+              }),
+              { status: 403, headers: { "Content-Type": "application/json" } }
+            ),
+          };
+        }
+      } catch {}
+    }
+  }
+
+  // 2. Secret configuration validation (FAIL CLOSED)
+  const secret = getSecret(context.env);
   if (!secret) {
     return {
       authorized: false,
@@ -196,29 +229,15 @@ export async function verifyAdminRequest(context: {
         JSON.stringify({
           success: false,
           status: 500,
-          message: "Server configuration error: Authentication secret is not configured.",
+          message: "Server configuration error: ADMIN_JWT_SECRET is not configured.",
         }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        }
+        { status: 500, headers: { "Content-Type": "application/json" } }
       ),
     };
   }
 
-  let token = extractToken(context.request);
-
-  // If not in headers/cookies, check JSON body if method is POST
-  if (!token && context.request.method === "POST") {
-    try {
-      const cloned = context.request.clone();
-      const body = await cloned.json().catch(() => ({}));
-      if (body && typeof body.token === "string") {
-        token = body.token.trim();
-      }
-    } catch {}
-  }
-
+  // 3. Strict Cookie Extraction ONLY (Bearer and Body tokens are rejected)
+  const token = extractCookieToken(context.request);
   if (!token) {
     return {
       authorized: false,
@@ -226,18 +245,15 @@ export async function verifyAdminRequest(context: {
         JSON.stringify({
           success: false,
           status: 401,
-          message: "Unauthorized: Missing authentication credentials.",
+          message: "Unauthorized: Missing or invalid session cookie.",
         }),
-        {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        }
+        { status: 401, headers: { "Content-Type": "application/json" } }
       ),
     };
   }
 
+  // 4. Token signature and expiry verification
   const result = await verifySessionToken(token, secret);
-
   if (!result.valid || !result.payload) {
     return {
       authorized: false,
@@ -247,10 +263,7 @@ export async function verifyAdminRequest(context: {
           status: 403,
           message: `Access denied: ${result.reason || "Invalid session"}`,
         }),
-        {
-          status: 403,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        }
+        { status: 403, headers: { "Content-Type": "application/json" } }
       ),
     };
   }

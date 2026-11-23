@@ -1,8 +1,9 @@
 // Client-side authentication and security helper for Siddharth Girase Portfolio
-// Prefers HttpOnly cookie-based sessions, avoids exposing tokens to persistent localStorage
+// Enforces pure HttpOnly cookie-based sessions.
+// JWT tokens are NEVER stored in localStorage or sessionStorage.
+// All requests authenticate via credentials: "same-origin" (HttpOnly cookie).
 
 export const AUTHORIZED_OWNER_EMAIL = "girasejitendra249@gmail.com";
-const TOKEN_STORAGE_KEY = "sg_portfolio_admin_jwt";
 const USER_STORAGE_KEY = "sg_portfolio_admin_user";
 
 export interface AdminUser {
@@ -11,17 +12,7 @@ export interface AdminUser {
   role: "owner";
 }
 
-// Scoped strictly to current browser tab session (never long-lived localStorage)
-export function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return sessionStorage.getItem(TOKEN_STORAGE_KEY) || null;
-}
-
-export function getAuthHeader(): Record<string, string> {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
+// Only non-sensitive user identity is stored for UI state
 export function getStoredUser(): AdminUser | null {
   if (typeof window === "undefined") return null;
   const raw = sessionStorage.getItem(USER_STORAGE_KEY) || localStorage.getItem(USER_STORAGE_KEY);
@@ -33,14 +24,10 @@ export function getStoredUser(): AdminUser | null {
   }
 }
 
-export function setSession(token: string, user: AdminUser, persist: boolean = false): void {
+export function setSession(user: AdminUser, persist: boolean = false): void {
   if (typeof window === "undefined") return;
-  // Session token is strictly kept in transient sessionStorage to mitigate XSS persistence
-  sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+  // Non-sensitive profile data only
   sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
-
-  // If persist is selected, user profile information (non-secret) is saved,
-  // while the server sets a 30-day Max-Age on the HttpOnly Secure session cookie.
   if (persist) {
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
   } else {
@@ -50,9 +37,7 @@ export function setSession(token: string, user: AdminUser, persist: boolean = fa
 
 export function clearSession(): void {
   if (typeof window === "undefined") return;
-  sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   sessionStorage.removeItem(USER_STORAGE_KEY);
-  localStorage.removeItem(TOKEN_STORAGE_KEY);
   localStorage.removeItem(USER_STORAGE_KEY);
 
   // Invalidate server-side HttpOnly cookie
@@ -62,23 +47,13 @@ export function clearSession(): void {
   }).catch(() => {});
 }
 
-// Check if currently authenticated as owner via backend verification (checks HttpOnly cookie & Bearer token)
+// Check if currently authenticated as owner via backend verification (uses HttpOnly cookie)
 export async function verifyOwnerSession(): Promise<boolean> {
-  const token = getAuthToken();
-
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
     const res = await fetch("/api/auth/verify", {
       method: "POST",
       credentials: "same-origin",
-      headers,
-      body: JSON.stringify(token ? { token } : {}),
+      headers: { "Content-Type": "application/json" },
     });
 
     if (res.ok) {
@@ -96,7 +71,7 @@ export async function verifyOwnerSession(): Promise<boolean> {
   return false;
 }
 
-// Authenticate with server
+// Authenticate with server (session token is set exclusively in HttpOnly cookie by the server)
 export async function loginOwner(
   email: string,
   password: string,
@@ -111,8 +86,8 @@ export async function loginOwner(
     });
 
     const data = await res.json();
-    if (res.ok && data.success && data.token) {
-      setSession(data.token, data.owner, persist);
+    if (res.ok && data.success && data.owner) {
+      setSession(data.owner, persist);
       return { success: true, message: data.message, user: data.owner };
     }
 
@@ -169,20 +144,11 @@ export async function completePasswordReset(
 
 // Audit logging helper
 export async function logAdminAudit(action: string, details?: string): Promise<void> {
-  const token = getAuthToken();
-
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
     await fetch("/api/admin/log_audit_action", {
       method: "POST",
       credentials: "same-origin",
-      headers,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userAction: action, details }),
     });
   } catch {}
@@ -190,20 +156,11 @@ export async function logAdminAudit(action: string, details?: string): Promise<v
 
 // Retrieve audit logs
 export async function fetchAuditLogs(): Promise<any[]> {
-  const token = getAuthToken();
-
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
     const res = await fetch("/api/admin/list_audit_logs", {
       method: "POST",
       credentials: "same-origin",
-      headers,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
     const data = await res.json();

@@ -1,6 +1,5 @@
 import { VideoProject } from "./videoData";
 import { resolveVideoSource } from "../utils/videoResolver";
-import { getAuthToken } from "../utils/authClient";
 import { extractVideoThumbnail } from "../utils/thumbnailGenerator";
 
 const DB_NAME = "SG_VideoPortfolio_DB";
@@ -104,11 +103,9 @@ function blobToBase64(blob: Blob): Promise<string> {
 // -------------------------------------------------------------
 
 export async function fetchCloudinaryUsageStats(): Promise<any> {
-  const token = getAuthToken();
-  if (!token) return { configured: false };
   try {
     const res = await fetch("/api/admin/cloudinary-usage", {
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: "same-origin",
     });
     if (res.ok) {
       const data = await res.json();
@@ -126,21 +123,19 @@ async function uploadMediaFile(
   originalName?: string,
   onProgress?: (percent: number) => void
 ): Promise<string> {
-  const token = getAuthToken();
   const isVideo = type === "video";
   const resType = isVideo ? "video" : "image";
 
-  // Method 1: Cloudinary Signed Direct Upload with Large-Video Chunking Support
-  if (token) {
-    try {
-      const signRes = await fetch("/api/admin/cloudinary-sign", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ resource_type: resType }),
-      });
+  // Method 1: Cloudinary Signed Direct Upload with Large-Video Chunking Support (via HttpOnly Cookie)
+  try {
+    const signRes = await fetch("/api/admin/cloudinary-sign", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ resource_type: resType }),
+    });
 
       if (signRes.ok) {
         const signData = await signRes.json();
@@ -233,7 +228,6 @@ async function uploadMediaFile(
     } catch (err) {
       console.warn("Cloudinary signed upload error, falling back to permanent server storage:", err);
     }
-  }
 
   // Method 2: Supabase Storage Bucket Upload (if configured)
   const config = getCloudStorageConfig();
@@ -266,10 +260,10 @@ async function uploadMediaFile(
   try {
     const res = await fetch(`/api/projects/upload-binary?type=${type}`, {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type":
           fileOrBlob.type || (type === "video" ? "video/mp4" : "image/jpeg"),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: fileOrBlob,
     });
@@ -289,9 +283,9 @@ async function uploadMediaFile(
       (fileOrBlob instanceof File ? fileOrBlob.name : `${type}_${Date.now()}`);
     const res = await fetch("/api/projects/upload", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ data: base64, type, name: fileName }),
     });
@@ -415,12 +409,11 @@ export async function saveShowreel(
 
   // 2. Save to shared server database
   try {
-    const token = getAuthToken();
     await fetch("/api/admin/showreel/save", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ showreel: newShowreel }),
     });
@@ -450,12 +443,11 @@ export async function saveShowreel(
 
 export async function deleteShowreel(): Promise<void> {
   try {
-    const token = getAuthToken();
     await fetch("/api/admin/showreel/save", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ showreel: DEFAULT_SHOWREEL }),
     });
@@ -597,12 +589,11 @@ export async function syncLocalProjectsToServer(): Promise<{
       });
     }
 
-    const token = getAuthToken();
     const res = await fetch("/api/projects/sync", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ projects: payloadProjects }),
     });
@@ -649,10 +640,9 @@ export async function syncLocalProjectsToServer(): Promise<{
 export async function getAllProjects(includeUnpublished: boolean = false): Promise<VideoProject[]> {
   // 1. Fetch from shared persistent database
   try {
-    const token = getAuthToken();
     const url = `/api/projects${includeUnpublished ? "?includeUnpublished=true" : ""}`;
     const res = await fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "same-origin",
     });
 
     if (res.ok) {
@@ -758,12 +748,11 @@ export async function saveProject(
 
   // 2. Persist to shared server database
   try {
-    const token = getAuthToken();
     await fetch("/api/admin/projects/save", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ project: newProject }),
     });
@@ -840,12 +829,11 @@ export async function updateProject(
 
   // 1. Update on shared server database
   try {
-    const token = getAuthToken();
     await fetch("/api/admin/projects/save", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ project: { id, ...cleanUpdates } }),
     });
@@ -894,12 +882,11 @@ export async function updateProject(
 export async function deleteProject(id: string): Promise<boolean> {
   // 1. Delete on shared server database
   try {
-    const token = getAuthToken();
     await fetch("/api/admin/projects/delete", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ id }),
     });
@@ -956,12 +943,11 @@ export async function restoreDatabaseBackup(
     }
 
     // 1. Restore to shared server database
-    const token = getAuthToken();
     await fetch("/api/projects/sync", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ projects: data.projects }),
     });
@@ -969,9 +955,9 @@ export async function restoreDatabaseBackup(
     if (data.showreel) {
       await fetch("/api/admin/showreel/save", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ showreel: data.showreel }),
       });

@@ -1,5 +1,5 @@
 // Cloudflare Pages Function: /api/auth/verify
-// Validates session tokens for owner authorization
+// Validates HttpOnly cookie session for owner authorization
 
 import { verifyAdminRequest, type AuthEnv } from "../../utils/auth.ts";
 
@@ -23,7 +23,6 @@ export const onRequest = async (context: { env: AuthEnv; request: Request }) => 
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
       },
     }
   );

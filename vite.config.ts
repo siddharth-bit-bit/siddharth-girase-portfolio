@@ -39,7 +39,9 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
         const url = req.url?.split("?")[0];
         const clientIp =
           req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
-        const authHeader = req.headers["authorization"];
+        const cookieHeader = req.headers["cookie"] || "";
+        const cookieMatch = cookieHeader.match(/(?:^|;\s*)sg_admin_jwt=([^;]+)/);
+        const devSessionToken = cookieMatch ? decodeURIComponent(cookieMatch[1].trim()) : undefined;
 
         // 0. Dedicated Video Streaming & Media Delivery (HTTP 206 Partial Content / Range Support)
         if (url?.startsWith("/uploads/")) {
@@ -158,14 +160,32 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
 
               if (url === "/api/auth/login" && req.method === "POST") {
                 const result = await authenticateOwner(body.email, body.password, clientIp);
+                if (result.success && result.token) {
+                  const maxAge = body.persist ? 30 * 24 * 60 * 60 : 24 * 60 * 60;
+                  res.setHeader(
+                    "Set-Cookie",
+                    `sg_admin_jwt=${result.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`
+                  );
+                  delete (result as any).token; // NEVER expose token in JSON
+                }
                 res.statusCode = result.status;
                 res.end(JSON.stringify(result));
                 return;
               }
 
-              if (url === "/api/auth/verify" && req.method === "POST") {
-                const token = body.token || authHeader?.replace("Bearer ", "");
-                const result = verifySessionToken(token);
+              if (url === "/api/auth/verify" && (req.method === "POST" || req.method === "GET")) {
+                if (!devSessionToken) {
+                  res.statusCode = 401;
+                  res.end(
+                    JSON.stringify({
+                      success: false,
+                      status: 401,
+                      message: "Unauthorized: Missing session cookie.",
+                    })
+                  );
+                  return;
+                }
+                const result = verifySessionToken(devSessionToken);
                 res.statusCode = result.valid ? 200 : 401;
                 res.end(
                   JSON.stringify({
@@ -173,6 +193,22 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
                     status: result.valid ? 200 : 401,
                     payload: result.payload,
                     message: result.valid ? "Session valid" : result.reason,
+                  })
+                );
+                return;
+              }
+
+              if (url === "/api/auth/logout" && (req.method === "POST" || req.method === "GET")) {
+                res.setHeader(
+                  "Set-Cookie",
+                  "sg_admin_jwt=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+                );
+                res.statusCode = 200;
+                res.end(
+                  JSON.stringify({
+                    success: true,
+                    status: 200,
+                    message: "Admin session logged out successfully.",
                   })
                 );
                 return;
@@ -207,9 +243,8 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
         if (url === "/api/projects" && req.method === "GET") {
           const includeUnpublished = req.url?.includes("includeUnpublished=true");
           let allowed = false;
-          if (includeUnpublished && authHeader) {
-            const token = authHeader.replace("Bearer ", "");
-            const auth = verifySessionToken(token);
+          if (includeUnpublished && devSessionToken) {
+            const auth = verifySessionToken(devSessionToken);
             if (auth.valid) allowed = true;
           }
           const projects = getPublicProjects(allowed);
@@ -237,7 +272,7 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
           req.on("end", () => {
             try {
               const body = JSON.parse(bodyStr || "{}");
-              const result = syncProjectsFromClient(body.projects || [], authHeader, clientIp);
+              const result = syncProjectsFromClient(body.projects || [], devSessionToken, clientIp);
               res.setHeader("Content-Type", "application/json");
               res.statusCode = result.status;
               res.end(JSON.stringify(result));
@@ -282,7 +317,7 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
         // 7. Streaming Binary Media Upload Endpoint
         if (url === "/api/projects/upload-binary" && req.method === "POST") {
           const type = req.url?.includes("type=thumbnail") ? "thumbnail" : "video";
-          handleBinaryUpload(req, res, type, authHeader, clientIp);
+          handleBinaryUpload(req, res, type, devSessionToken, clientIp);
           return;
         }
 
@@ -299,7 +334,7 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
 
               // Project mutations
               if (action === "projects/save") {
-                const result = saveProjectServer(body.project || body, authHeader, clientIp);
+                const result = saveProjectServer(body.project || body, devSessionToken, clientIp);
                 res.setHeader("Content-Type", "application/json");
                 res.statusCode = result.status;
                 res.end(JSON.stringify(result));
@@ -307,7 +342,7 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
               }
 
               if (action === "projects/delete") {
-                const result = deleteProjectServer(body.id, authHeader, clientIp);
+                const result = deleteProjectServer(body.id, devSessionToken, clientIp);
                 res.setHeader("Content-Type", "application/json");
                 res.statusCode = result.status;
                 res.end(JSON.stringify(result));
@@ -326,7 +361,7 @@ function backendApiPlugin(env: Record<string, string>): Plugin {
                 action,
                 req.method,
                 body,
-                authHeader,
+                devSessionToken,
                 clientIp
               );
               res.setHeader("Content-Type", "application/json");
