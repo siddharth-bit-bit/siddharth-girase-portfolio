@@ -103,8 +103,8 @@ export async function loginOwner(
   }
 }
 
-// Request password reset code
-export async function requestPasswordReset(email: string): Promise<{ success: boolean; message: string; debugCode?: string }> {
+// Step 1: Request password reset 6-digit verification code
+export async function requestPasswordReset(email: string): Promise<{ success: boolean; message: string; cooldownRemaining?: number }> {
   try {
     const res = await fetch("/api/auth/request-password-reset", {
       method: "POST",
@@ -115,17 +115,41 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
     const data = await res.json();
     return {
       success: data.success,
-      message: data.message,
-      debugCode: data.debugCode,
+      message: data.message || "Request processed.",
+      cooldownRemaining: data.cooldownRemaining,
     };
   } catch (err: any) {
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || "Failed to request password reset code." };
   }
 }
 
-// Complete password reset with code
+// Step 2: Verify 6-digit OTP code on the server and obtain reset authorization token
+export async function verifyResetCode(
+  email: string,
+  code: string
+): Promise<{ success: boolean; message: string; resetToken?: string; remainingAttempts?: number }> {
+  try {
+    const res = await fetch("/api/auth/verify-reset-code", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), code: code.trim() }),
+    });
+    const data = await res.json();
+    return {
+      success: data.success,
+      message: data.message || "Code verification processed.",
+      resetToken: data.resetToken,
+      remainingAttempts: data.remainingAttempts,
+    };
+  } catch (err: any) {
+    return { success: false, message: err.message || "Verification request failed." };
+  }
+}
+
+// Step 3: Complete password reset with single-use reset authorization token
 export async function completePasswordReset(
-  code: string,
+  resetToken: string,
   newPassword: string
 ): Promise<{ success: boolean; message: string }> {
   try {
@@ -133,12 +157,12 @@ export async function completePasswordReset(
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: code.trim(), newPassword }),
+      body: JSON.stringify({ resetToken: resetToken.trim(), newPassword }),
     });
     const data = await res.json();
-    return { success: data.success, message: data.message };
+    return { success: data.success, message: data.message || "Password update processed." };
   } catch (err: any) {
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || "Failed to update password." };
   }
 }
 

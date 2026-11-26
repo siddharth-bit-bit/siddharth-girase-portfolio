@@ -30,6 +30,9 @@ import { onRequestPost as projectDeleteHandler } from "../functions/api/admin/pr
 import { onRequestPost as showreelSaveHandler } from "../functions/api/admin/showreel/save.ts";
 import { onRequestGet as projectsGetHandler } from "../functions/api/projects.ts";
 import { onRequestGet as showreelGetHandler } from "../functions/api/showreel.ts";
+import { onRequestPost as requestResetHandler } from "../functions/api/auth/request-password-reset.ts";
+import { onRequestPost as verifyResetHandler } from "../functions/api/auth/verify-reset-code.ts";
+import { onRequestPost as completeResetHandler } from "../functions/api/auth/reset-password.ts";
 
 // Test Environment Mock with isolated ephemeral credentials
 const TEST_PASSWORD = "AutomatedSecureTest#2026!";
@@ -598,6 +601,219 @@ async function runTests() {
   const noKeyData: any = await noKeyInqRes.json();
   assert(noKeyInqRes.status === 503, "Inquiry without RESEND_API_KEY gracefully returns 503 Service Unavailable");
   assert(noKeyData.message.includes("WhatsApp"), "Inquiry returns helpful WhatsApp fallback message to the user");
+
+  // ----------------------------------------------------------------------------
+  // 19. PASSWORD RESET & EMAIL OTP SECURITY FLOW
+  // ----------------------------------------------------------------------------
+  console.log("\n--- 19. Testing Password Reset & Email OTP Security Flow ---");
+
+  // In-memory mock D1 database implementation for tests
+  const mockD1Tables: {
+    otps: any[];
+    tokens: any[];
+    admin: any[];
+  } = {
+    otps: [],
+    tokens: [],
+    admin: [{ id: "admin_1", email: AUTHORIZED_OWNER_EMAIL.toLowerCase(), password_hash: TEST_ENV.ADMIN_PASSWORD_HASH, salt: TEST_SALT, updated_at: Date.now() }],
+  };
+
+  const mockDB: any = {
+    prepare: (query: string) => {
+      let boundParams: any[] = [];
+      const stmt = {
+        bind: (...params: any[]) => {
+          boundParams = params;
+          return stmt;
+        },
+        first: async () => {
+          if (query.includes("FROM admin_auth")) {
+            const email = boundParams[0];
+            return mockD1Tables.admin.find((a) => a.email === email) || null;
+          }
+          if (query.includes("FROM password_reset_otps")) {
+            const email = boundParams[0];
+            const active = mockD1Tables.otps.filter((o) => o.email === email && o.used === 0);
+            return active.sort((a, b) => b.created_at - a.created_at)[0] || null;
+          }
+          if (query.includes("FROM password_reset_tokens")) {
+            const token = boundParams[0];
+            return mockD1Tables.tokens.find((t) => t.token === token) || null;
+          }
+          return null;
+        },
+        run: async () => {
+          if (query.includes("UPDATE password_reset_otps SET used = 1 WHERE email = ? AND used = 0")) {
+            const email = boundParams[0];
+            mockD1Tables.otps.forEach((o) => {
+              if (o.email === email && o.used === 0) o.used = 1;
+            });
+          } else if (query.includes("INSERT INTO password_reset_otps")) {
+            mockD1Tables.otps.push({
+              id: boundParams[0],
+              email: boundParams[1],
+              otp_hash: boundParams[2],
+              attempts: 0,
+              expires_at: boundParams[3],
+              used: 0,
+              created_at: boundParams[4],
+            });
+          } else if (query.includes("UPDATE password_reset_otps SET attempts = ? WHERE id = ?")) {
+            const target = mockD1Tables.otps.find((o) => o.id === boundParams[1]);
+            if (target) target.attempts = boundParams[0];
+          } else if (query.includes("UPDATE password_reset_otps SET used = 1 WHERE id = ?")) {
+            const target = mockD1Tables.otps.find((o) => o.id === boundParams[0]);
+            if (target) target.used = 1;
+          } else if (query.includes("INSERT INTO password_reset_tokens")) {
+            mockD1Tables.tokens.push({
+              token: boundParams[0],
+              email: boundParams[1],
+              expires_at: boundParams[2],
+              used: 0,
+              created_at: boundParams[3],
+            });
+          } else if (query.includes("UPDATE password_reset_tokens SET used = 1 WHERE token = ?")) {
+            const target = mockD1Tables.tokens.find((t) => t.token === boundParams[0]);
+            if (target) target.used = 1;
+          } else if (query.includes("UPDATE admin_auth SET password_hash = ?, salt = ?, updated_at = ? WHERE email = ?")) {
+            const target = mockD1Tables.admin.find((a) => a.email === boundParams[3]);
+            if (target) {
+              target.password_hash = boundParams[0];
+              target.salt = boundParams[1];
+              target.updated_at = boundParams[2];
+            }
+          }
+          return { success: true };
+        },
+      };
+      return stmt;
+    },
+  };
+
+  const RESET_TEST_ENV = {
+    ...TEST_ENV,
+    DB: mockDB,
+    RESEND_API_KEY: "mock_resend_key_for_testing",
+  };
+
+  // Mock global fetch for Resend API dispatch
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url: any, init?: any) => {
+    if (typeof url === "string" && url.includes("api.resend.com/emails")) {
+      return new Response(JSON.stringify({ id: "mock_resend_email_id_12345" }), { status: 200 });
+    }
+    return originalFetch(url, init);
+  };
+
+  // 19.1 Unauthorized email rejection
+  const badResetReq = new Request("https://example.com/api/auth/request-password-reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: "attacker@gmail.com" }),
+  });
+  const badResetRes = await requestResetHandler({ env: RESET_TEST_ENV, request: badResetReq });
+  assert(badResetRes.status === 403, "Request reset rejects non-owner email with 403 Forbidden");
+
+  // 19.2 Valid OTP request
+  const validResetReq = new Request("https://example.com/api/auth/request-password-reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL }),
+  });
+  const validResetRes = await requestResetHandler({ env: RESET_TEST_ENV, request: validResetReq });
+  assert(validResetRes.status === 200, "Request reset dispatches OTP and returns 200 OK");
+  assert(mockD1Tables.otps.length === 1, "OTP record is securely saved in database");
+
+  // 19.3 Cooldown enforcement (60s)
+  const cooldownReq = new Request("https://example.com/api/auth/request-password-reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL }),
+  });
+  const cooldownRes = await requestResetHandler({ env: RESET_TEST_ENV, request: cooldownReq });
+  assert(cooldownRes.status === 429, "Immediate repeat reset request is rate-limited (429 Too Many Requests)");
+
+  // 19.4 Incorrect OTP verification
+  const wrongOtpReq = new Request("https://example.com/api/auth/verify-reset-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, code: "000000" }),
+  });
+  const wrongOtpRes = await verifyResetHandler({ env: RESET_TEST_ENV, request: wrongOtpReq });
+  assert(wrongOtpRes.status === 401, "Incorrect OTP code is rejected with 401 Unauthorized");
+  assert(mockD1Tables.otps[0].attempts === 1, "Failed attempt counter is incremented in database");
+
+  // Derive the active OTP code from the stored hash
+  let generatedOtp = "";
+  const textEnc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    textEnc.encode(RESET_TEST_ENV.ADMIN_JWT_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  for (let c = 100000; c <= 999999; c++) {
+    const sig = await crypto.subtle.sign("HMAC", keyMaterial, textEnc.encode(c.toString()));
+    const hex = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (hex === mockD1Tables.otps[0].otp_hash) {
+      generatedOtp = c.toString();
+      break;
+    }
+  }
+
+  // 19.5 Correct OTP verification
+  const correctOtpReq = new Request("https://example.com/api/auth/verify-reset-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, code: generatedOtp }),
+  });
+  const correctOtpRes = await verifyResetHandler({ env: RESET_TEST_ENV, request: correctOtpReq });
+  const correctOtpData: any = await correctOtpRes.json();
+  assert(correctOtpRes.status === 200 && Boolean(correctOtpData.resetToken), "Valid OTP verification returns 200 and issues single-use resetToken");
+  assert(mockD1Tables.otps[0].used === 1, "OTP is invalidated immediately upon successful verification to prevent replay");
+
+  // 19.6 Replay rejection of used OTP
+  const replayOtpReq = new Request("https://example.com/api/auth/verify-reset-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, code: generatedOtp }),
+  });
+  const replayOtpRes = await verifyResetHandler({ env: RESET_TEST_ENV, request: replayOtpReq });
+  assert(replayOtpRes.status === 400, "Replaying an already consumed OTP is rejected (400 Bad Request)");
+
+  // 19.7 Password reset completion
+  const issuedToken = correctOtpData.resetToken;
+  const NEW_ADMIN_PWD = "BrandNewSecurePassword#2026!";
+  const resetCompleteReq = new Request("https://example.com/api/auth/reset-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ resetToken: issuedToken, newPassword: NEW_ADMIN_PWD }),
+  });
+  const resetCompleteRes = await completeResetHandler({ env: RESET_TEST_ENV, request: resetCompleteReq });
+  assert(resetCompleteRes.status === 200, "Password reset completion succeeds (200 OK)");
+  assert(mockD1Tables.tokens[0].used === 1, "Reset token is atomically consumed");
+
+  // 19.8 Old password rejection after reset
+  const oldPwdLoginReq = new Request("https://example.com/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: TEST_PASSWORD }),
+  });
+  const oldPwdLoginRes = await loginHandler({ env: RESET_TEST_ENV, request: oldPwdLoginReq });
+  assert(oldPwdLoginRes.status === 401, "Old password is now rejected after successful reset in D1 (401 Unauthorized)");
+
+  // 19.9 New password login success
+  const newPwdLoginReq = new Request("https://example.com/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://example.com" },
+    body: JSON.stringify({ email: AUTHORIZED_OWNER_EMAIL, password: NEW_ADMIN_PWD }),
+  });
+  const newPwdLoginRes = await loginHandler({ env: RESET_TEST_ENV, request: newPwdLoginReq });
+  assert(newPwdLoginRes.status === 200, "Login succeeds with the newly set password (200 OK)");
+
+  // Restore fetch
+  globalThis.fetch = originalFetch;
 
   // ----------------------------------------------------------------------------
   // SUMMARY

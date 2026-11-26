@@ -1,6 +1,7 @@
 // Cloudflare Pages Function: /api/auth/login
 // Secure owner authentication endpoint with PBKDF2 password hashing and HttpOnly session cookies
-// FAILS CLOSED when environment variables are missing. Never uses default credentials.
+// Uses D1 database as the authoritative password record when available, falling back to environment secrets.
+// FAILS CLOSED when neither D1 nor environment variables provide credentials.
 // The session token is transmitted EXCLUSIVELY via HttpOnly cookie; NEVER returned in JSON.
 
 import {
@@ -47,26 +48,33 @@ export const onRequestPost = async (context: { env: AuthEnv; request: Request })
       );
     }
 
-    // Determine salt and password hash from canonical Environment variables
-    let salt = (context.env.ADMIN_SALT || "").trim();
-    let expectedHash = (context.env.ADMIN_PASSWORD_HASH || "").trim();
+    // Determine salt and password hash from authoritative D1 first, then environment fallback
+    let salt = "";
+    let expectedHash = "";
+    let d1Found = false;
 
-    // Optional D1 lookup fallback if DB binding exists
-    if ((!salt || !expectedHash) && context.env.DB) {
+    if (context.env.DB) {
       try {
-        const query = await context.env.DB.prepare(
+        const query: any = await context.env.DB.prepare(
           "SELECT password_hash, salt FROM admin_auth WHERE email = ? LIMIT 1"
         )
           .bind(email)
           .first();
 
-        if (query) {
-          expectedHash = (query.password_hash || "").trim() || expectedHash;
-          salt = (query.salt || "").trim() || salt;
+        if (query && query.password_hash && query.salt) {
+          expectedHash = (query.password_hash || "").trim();
+          salt = (query.salt || "").trim();
+          d1Found = true;
         }
       } catch (e) {
         console.warn("Could not query admin_auth from D1:", e);
       }
+    }
+
+    // Fall back to environment variables only if D1 did not have a record
+    if (!d1Found) {
+      salt = (context.env.ADMIN_SALT || "").trim();
+      expectedHash = (context.env.ADMIN_PASSWORD_HASH || "").trim();
     }
 
     // FAIL CLOSED: If salt or expectedHash are not configured, reject with safe error

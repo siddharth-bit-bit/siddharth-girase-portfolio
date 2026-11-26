@@ -42,5 +42,6 @@ public/uploads/videos/
 public/uploads/thumbnails/
 staging/
 *.bak
+*.sql
 .wrangler/
 _worker.bundle

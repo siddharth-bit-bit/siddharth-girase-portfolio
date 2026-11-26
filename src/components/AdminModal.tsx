@@ -45,6 +45,7 @@ import {
   verifyOwnerSession,
   clearSession,
   requestPasswordReset,
+  verifyResetCode,
   completePasswordReset,
   logAdminAudit,
   fetchAuditLogs,
@@ -78,12 +79,17 @@ const AdminModal = ({
 
   // Password reset flow states
   const [isResetMode, setIsResetMode] = useState<boolean>(false);
-  const [resetStep, setResetStep] = useState<"request" | "verify">("request");
-  const [resetEmail, setResetEmail] = useState<string>(AUTHORIZED_OWNER_EMAIL);
-  const [resetCode, setResetCode] = useState<string>("");
+  const [resetStep, setResetStep] = useState<"request" | "verify" | "new_password">("request");
+  const [resetEmail] = useState<string>(AUTHORIZED_OWNER_EMAIL);
+  const [otpDigits, setOtpDigits] = useState<string[]>(["", "", "", "", "", ""]);
+  const [resetToken, setResetToken] = useState<string>("");
   const [newPassword, setNewPassword] = useState<string>("");
   const [confirmPassword, setConfirmPassword] = useState<string>("");
-  const [resetMessage, setResetMessage] = useState<string>("");
+  const [showNewPassword, setShowNewPassword] = useState<boolean>(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
+  const [resetMessage, setResetMessage] = useState<{ text: string; type: "info" | "error" | "success" } | null>(null);
+  const [isResetSubmitting, setIsResetSubmitting] = useState<boolean>(false);
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
 
   // Dashboard Active Tab
   const [activeTab, setActiveTab] = useState<AdminTab>("portfolio");
@@ -266,49 +272,147 @@ const AdminModal = ({
   };
 
   // 2. Password Reset Handlers
-  const handleRequestReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setResetMessage("");
-    if (!resetEmail.trim()) {
-      setResetMessage("Please enter your email.");
+  useEffect(() => {
+    let timer: any = null;
+    if (resendCooldown > 0) {
+      timer = setInterval(() => {
+        setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [resendCooldown]);
+
+  const handleRequestReset = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (resendCooldown > 0) return;
+    setResetMessage(null);
+    setIsResetSubmitting(true);
+
+    const res = await requestPasswordReset(resetEmail);
+    setIsResetSubmitting(false);
+
+    if (res.success) {
+      setResetMessage({ text: res.message, type: "success" });
+      setResetStep("verify");
+      setResendCooldown(60);
+      setOtpDigits(["", "", "", "", "", ""]);
+      setTimeout(() => {
+        const firstInput = document.getElementById("otp-input-0");
+        if (firstInput) (firstInput as HTMLInputElement).focus();
+      }, 100);
+    } else {
+      setResetMessage({ text: res.message, type: "error" });
+      if (res.cooldownRemaining) {
+        setResendCooldown(res.cooldownRemaining);
+      }
+    }
+  };
+
+  const handleOtpChange = (index: number, val: string) => {
+    const cleaned = val.replace(/\D/g, "");
+    if (!cleaned) {
+      const nextDigits = [...otpDigits];
+      nextDigits[index] = "";
+      setOtpDigits(nextDigits);
       return;
     }
 
-    const res = await requestPasswordReset(resetEmail);
-    setResetMessage(res.message);
-    if (res.success) {
-      setResetStep("verify");
-      if (res.debugCode) {
-        setResetCode(res.debugCode);
+    const digit = cleaned.slice(-1);
+    const nextDigits = [...otpDigits];
+    nextDigits[index] = digit;
+    setOtpDigits(nextDigits);
+
+    // Auto-advance focus
+    if (index < 5) {
+      const nextInput = document.getElementById(`otp-input-${index + 1}`);
+      if (nextInput) (nextInput as HTMLInputElement).focus();
+    }
+  };
+
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !otpDigits[index] && index > 0) {
+      const prevInput = document.getElementById(`otp-input-${index - 1}`);
+      if (prevInput) {
+        (prevInput as HTMLInputElement).focus();
+        const nextDigits = [...otpDigits];
+        nextDigits[index - 1] = "";
+        setOtpDigits(nextDigits);
       }
+    }
+  };
+
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasteData = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (!pasteData) return;
+
+    const nextDigits = ["", "", "", "", "", ""];
+    for (let i = 0; i < pasteData.length; i++) {
+      nextDigits[i] = pasteData[i];
+    }
+    setOtpDigits(nextDigits);
+
+    const focusIdx = Math.min(pasteData.length, 5);
+    const targetInput = document.getElementById(`otp-input-${focusIdx}`);
+    if (targetInput) (targetInput as HTMLInputElement).focus();
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const fullOtp = otpDigits.join("");
+    if (fullOtp.length !== 6) {
+      setResetMessage({ text: "Please enter all 6 digits of the verification code.", type: "error" });
+      return;
+    }
+
+    setResetMessage(null);
+    setIsResetSubmitting(true);
+    const res = await verifyResetCode(resetEmail, fullOtp);
+    setIsResetSubmitting(false);
+
+    if (res.success && res.resetToken) {
+      setResetToken(res.resetToken);
+      setResetStep("new_password");
+      setResetMessage({ text: "Verification code confirmed. Please set your new admin password.", type: "success" });
+    } else {
+      setResetMessage({ text: res.message, type: "error" });
     }
   };
 
   const handleCompleteReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resetCode.trim() || !newPassword.trim()) {
-      setResetMessage("Please enter the 6-digit code and a new password.");
+    setResetMessage(null);
+
+    if (!newPassword || newPassword.length < 8) {
+      setResetMessage({ text: "Password must be at least 8 characters in length.", type: "error" });
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setResetMessage("Passwords do not match.");
+      setResetMessage({ text: "Passwords do not match.", type: "error" });
       return;
     }
 
-    if (newPassword.length < 8) {
-      setResetMessage("Password must be at least 8 characters long.");
-      return;
-    }
+    setIsResetSubmitting(true);
+    const res = await completePasswordReset(resetToken, newPassword);
+    setIsResetSubmitting(false);
 
-    const res = await completePasswordReset(resetCode, newPassword);
-    setResetMessage(res.message);
     if (res.success) {
+      setResetMessage({ text: res.message, type: "success" });
       setTimeout(() => {
         setIsResetMode(false);
         setResetStep("request");
         setLoginPassword("");
-      }, 1500);
+        setNewPassword("");
+        setConfirmPassword("");
+        setResetToken("");
+        setOtpDigits(["", "", "", "", "", ""]);
+        setResetMessage(null);
+      }, 2000);
+    } else {
+      setResetMessage({ text: res.message, type: "error" });
     }
   };
 
@@ -697,7 +801,11 @@ const AdminModal = ({
               </p>
 
               {loginError && <div className="admin-alert error">{loginError}</div>}
-              {resetMessage && <div className="admin-alert info">{resetMessage}</div>}
+              {resetMessage && (
+                <div className={`admin-alert ${resetMessage.type}`}>
+                  {resetMessage.text}
+                </div>
+              )}
 
               {!isResetMode ? (
                 <form onSubmit={handleLoginSubmit} className="login-form">
@@ -746,7 +854,8 @@ const AdminModal = ({
                       className="forgot-pw-link"
                       onClick={() => {
                         setIsResetMode(true);
-                        setResetMessage("");
+                        setResetStep("request");
+                        setResetMessage(null);
                         setLoginError("");
                       }}
                     >
@@ -772,74 +881,207 @@ const AdminModal = ({
               ) : (
                 /* PASSWORD RESET FLOW */
                 <div className="reset-password-flow">
-                  {resetStep === "request" ? (
+                  {resetStep === "request" && (
                     <form onSubmit={handleRequestReset} className="login-form">
                       <p className="reset-desc">
-                        Enter your authorized owner email. A secure 6-digit verification code will be dispatched to your inbox.
+                        A cryptographically secure 6-digit verification code will be sent to the registered owner email address:
                       </p>
                       <div className="form-group">
-                        <label>Owner Email</label>
+                        <label>Registered Owner Email</label>
                         <input
                           type="email"
                           value={resetEmail}
-                          onChange={(e) => setResetEmail(e.target.value)}
-                          required
+                          readOnly
+                          className="readonly-email-input"
                         />
                       </div>
-                      <button type="submit" className="admin-btn-primary">
-                        Send Reset Code
-                      </button>
                       <button
-                        type="button"
-                        className="admin-btn-ghost mt-2"
-                        onClick={() => setIsResetMode(false)}
+                        type="submit"
+                        disabled={isResetSubmitting || resendCooldown > 0}
+                        className="admin-btn-primary"
                       >
-                        Back to Login
-                      </button>
-                    </form>
-                  ) : (
-                    <form onSubmit={handleCompleteReset} className="login-form">
-                      <p className="reset-desc">
-                        Enter the 6-digit code sent to your email along with your new password.
-                      </p>
-                      <div className="form-group">
-                        <label>6-Digit Code</label>
-                        <input
-                          type="text"
-                          maxLength={6}
-                          value={resetCode}
-                          onChange={(e) => setResetCode(e.target.value)}
-                          placeholder="e.g. 849201"
-                          required
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>New Password (Min 8 Characters)</label>
-                        <input
-                          type="password"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          required
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Confirm New Password</label>
-                        <input
-                          type="password"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          required
-                        />
-                      </div>
-                      <button type="submit" className="admin-btn-primary">
-                        Update Password & Log In
+                        {isResetSubmitting ? (
+                          <>
+                            <FaSpinner className="spinner-icon spin" /> Sending Verification Code...
+                          </>
+                        ) : resendCooldown > 0 ? (
+                          `Wait ${resendCooldown}s to Resend`
+                        ) : (
+                          "Send Verification Code"
+                        )}
                       </button>
                       <button
                         type="button"
                         className="admin-btn-ghost mt-2"
                         onClick={() => {
                           setIsResetMode(false);
+                          setResetMessage(null);
+                        }}
+                      >
+                        Back to Login
+                      </button>
+                    </form>
+                  )}
+
+                  {resetStep === "verify" && (
+                    <form onSubmit={handleVerifyOtp} className="login-form">
+                      <p className="reset-desc">
+                        Enter the 6-digit verification code sent to <strong>{resetEmail}</strong>:
+                      </p>
+
+                      <div className="form-group">
+                        <label>6-Digit Security OTP</label>
+                        <div className="otp-container">
+                          {otpDigits.map((digit, idx) => (
+                            <input
+                              key={idx}
+                              id={`otp-input-${idx}`}
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              maxLength={1}
+                              value={digit}
+                              onChange={(e) => handleOtpChange(idx, e.target.value)}
+                              onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                              onPaste={handleOtpPaste}
+                              className="otp-box"
+                              autoComplete="off"
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="otp-resend-row">
+                        {resendCooldown > 0 ? (
+                          <span className="cooldown-text">
+                            Resend code in <strong>{resendCooldown}s</strong>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="resend-link-btn"
+                            disabled={isResetSubmitting}
+                            onClick={() => handleRequestReset()}
+                          >
+                            Resend Verification Code
+                          </button>
+                        )}
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isResetSubmitting || otpDigits.join("").length !== 6}
+                        className="admin-btn-primary mt-2"
+                      >
+                        {isResetSubmitting ? (
+                          <>
+                            <FaSpinner className="spinner-icon spin" /> Verifying Code...
+                          </>
+                        ) : (
+                          "Verify Code & Continue"
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="admin-btn-ghost mt-2"
+                        onClick={() => {
                           setResetStep("request");
+                          setResetMessage(null);
+                        }}
+                      >
+                        Back
+                      </button>
+                    </form>
+                  )}
+
+                  {resetStep === "new_password" && (
+                    <form onSubmit={handleCompleteReset} className="login-form">
+                      <p className="reset-desc">
+                        Create a strong, new administrator password for your portfolio account.
+                      </p>
+
+                      <div className="form-group">
+                        <label>New Password (Min 8 Characters)</label>
+                        <div className="password-input-wrapper">
+                          <input
+                            type={showNewPassword ? "text" : "password"}
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            placeholder="Enter new password"
+                            required
+                          />
+                          <button
+                            type="button"
+                            className="toggle-pw-btn"
+                            onClick={() => setShowNewPassword(!showNewPassword)}
+                          >
+                            {showNewPassword ? <FaEyeSlash /> : <FaEye />}
+                          </button>
+                        </div>
+                        {newPassword && (
+                          <div className="password-strength-indicator">
+                            <div
+                              className={`strength-bar ${
+                                newPassword.length >= 12 && /[A-Z]/.test(newPassword) && /[0-9]/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword)
+                                  ? "strong"
+                                  : newPassword.length >= 8
+                                  ? "medium"
+                                  : "weak"
+                              }`}
+                            />
+                            <span className="strength-label">
+                              {newPassword.length >= 12 && /[A-Z]/.test(newPassword) && /[0-9]/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword)
+                                ? "Strong Password"
+                                : newPassword.length >= 8
+                                ? "Moderate Password"
+                                : "Too Short (Min 8 characters)"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="form-group">
+                        <label>Confirm New Password</label>
+                        <div className="password-input-wrapper">
+                          <input
+                            type={showConfirmPassword ? "text" : "password"}
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            placeholder="Re-enter new password"
+                            required
+                          />
+                          <button
+                            type="button"
+                            className="toggle-pw-btn"
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          >
+                            {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isResetSubmitting || !newPassword || newPassword !== confirmPassword}
+                        className="admin-btn-primary"
+                      >
+                        {isResetSubmitting ? (
+                          <>
+                            <FaSpinner className="spinner-icon spin" /> Updating Password in D1...
+                          </>
+                        ) : (
+                          "Save Password & Return to Login"
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="admin-btn-ghost mt-2"
+                        onClick={() => {
+                          setIsResetMode(false);
+                          setResetStep("request");
+                          setResetMessage(null);
                         }}
                       >
                         Cancel

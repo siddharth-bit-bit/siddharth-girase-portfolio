@@ -230,7 +230,120 @@
   font-size: 13px;
   color: #a49db0;
   line-height: 1.5;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+.readonly-email-input {
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: #c084fc !important;
+  font-weight: 600;
+  cursor: not-allowed;
+  border-color: rgba(192, 132, 252, 0.25) !important;
+}
+
+.otp-container {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.otp-box {
+  width: 48px;
+  height: 54px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+  background: rgba(18, 12, 28, 0.85);
+  border: 1.5px solid rgba(192, 132, 252, 0.35);
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.otp-box:focus {
+  border-color: #c084fc;
+  box-shadow: 0 0 12px rgba(192, 132, 252, 0.45);
+  outline: none;
+  background: rgba(25, 16, 40, 0.95);
+}
+
+.otp-resend-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 8px 0 16px;
+  font-size: 12.5px;
+}
+
+.cooldown-text {
+  color: #a49db0;
+}
+
+.cooldown-text strong {
+  color: #c084fc;
+}
+
+.resend-link-btn {
+  background: none;
+  border: none;
+  color: #c084fc;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: underline;
+  transition: color 0.2s ease;
+}
+
+.resend-link-btn:hover {
+  color: #e9d5ff;
+}
+
+.password-strength-indicator {
+  margin-top: 8px;
+}
+
+.strength-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  margin-bottom: 4px;
+  transition: all 0.3s ease;
+}
+
+.strength-bar.weak {
+  width: 30%;
+  background: #ef4444;
+}
+
+.strength-bar.medium {
+  width: 65%;
+  background: #f59e0b;
+}
+
+.strength-bar.strong {
+  width: 100%;
+  background: #10b981;
+}
+
+.strength-label {
+  font-size: 11px;
+  color: #a49db0;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ------------------------------------------------------------------ */

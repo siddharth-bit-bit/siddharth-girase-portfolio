@@ -39,7 +39,7 @@ const Scene = () => {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
       renderer.setClearColor(0x000000, 0); // 100% transparent canvas
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.20;
+      renderer.toneMappingExposure = 1.00; // Balanced cinematic exposure preventing clipped highlights and maintaining rich dark contrast
       canvasDiv.current.appendChild(renderer.domElement);
 
       // Heroic camera framing of the cinema camera & 3-axis motorized gimbal

@@ -166,8 +166,8 @@
   position: absolute;
   width: 160px;
   height: 160px;
-  background: radial-gradient(circle, rgba(168, 85, 247, 0.45) 0%, transparent 70%);
-  filter: blur(35px);
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.20) 0%, transparent 70%);
+  filter: blur(45px);
   border-radius: 50%;
   pointer-events: none;
   z-index: -1;
@@ -177,34 +177,48 @@
 
 .scroll-to-explore-wrap {
   position: absolute;
-  bottom: 24px;
+  bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 12;
   text-align: center;
+  pointer-events: auto;
 }
 
 .scroll-to-explore-link {
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   text-decoration: none;
-  color: #a49db2;
+  color: #f1edff;
   font-size: 11px;
   letter-spacing: 3px;
   font-weight: 600;
   text-transform: uppercase;
-  transition: all 0.25s ease;
+  padding: 8px 18px;
+  background: rgba(15, 10, 24, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(192, 132, 252, 0.35);
+  border-radius: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 16px rgba(168, 85, 247, 0.20);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .scroll-to-explore-link:hover {
-  color: #c2a4ff;
+  color: #ffffff;
+  border-color: rgba(192, 132, 252, 0.65);
+  background: rgba(25, 15, 40, 0.85);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.7), 0 0 24px rgba(168, 85, 247, 0.40);
+  transform: translateY(-2px);
 }
 
 .scroll-arrow-anim {
-  font-size: 16px;
-  color: #c2a4ff;
+  font-size: 14px;
+  line-height: 1;
+  color: #c084fc;
+  filter: drop-shadow(0 0 6px rgba(192, 132, 252, 0.6));
   animation: scrollBounce 2s infinite ease-in-out;
 }
 
@@ -228,59 +242,61 @@
   bottom: 40px;
   top: inherit;
   z-index: 9;
+  display: flex;
+  flex-direction: column;
 }
 .landing-info h3 {
-  font-size: 22px;
-  letter-spacing: 2px;
-  font-weight: 300;
-  color: var(--accentColor);
-  margin: 0;
+  font-size: 18px;
+  letter-spacing: 2.5px;
+  font-weight: 500;
+  color: #c084fc;
+  text-transform: uppercase;
+  margin: 0 0 6px 0;
+  opacity: 0.95;
 }
 .landing-info h2 {
   margin: 0;
-  margin-top: -20px;
-  margin-left: 20px;
-  font-family: "Geist", sans-serif;
-  font-weight: 600;
-  font-size: 32px;
-  line-height: 40px;
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1.15;
   position: relative;
   display: flex;
   flex-wrap: nowrap;
   text-transform: uppercase;
-  letter-spacing: 2px;
-}
-.landing-h2-info-1 {
-  position: absolute;
-  top: 0;
-}
-h2.landing-info-h2 {
+  letter-spacing: 1.5px;
   color: #c481ff;
-  font-size: 42px;
-  width: 120%;
-  margin: 0;
-  font-family: "Geist", sans-serif;
-  font-weight: 600;
-  position: relative;
-  margin-left: -5px;
+  height: 1.25em;
+  overflow: visible;
 }
+.landing-h2-info,
+.landing-h2-1 {
+  position: relative;
+  display: inline-block;
+  white-space: nowrap;
+}
+.landing-h2-info-1,
 .landing-h2-2 {
   position: absolute;
   top: 0;
+  left: 0;
+  white-space: nowrap;
+}
+h2.landing-info-h2 {
+  color: #ffffff;
+  font-size: 34px;
+  margin: 0 0 4px 0;
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 700;
+  line-height: 1.15;
+  position: relative;
+  letter-spacing: 1.5px;
+  height: 1.25em;
+  overflow: visible;
+  width: auto;
 }
 .landing-info-h2::after {
-  content: "";
-  position: absolute;
-  width: 100%;
-  height: 120%;
-  z-index: 3;
-  background-image: linear-gradient(
-    0deg,
-    var(--backgroundColor) 40%,
-    rgba(0, 0, 0, 0) 110%
-  );
-  top: 0;
-  left: 0;
+  display: none;
 }
 @media screen and (max-width: 1024px) {
   .landing-section {
@@ -352,31 +368,43 @@ h2.landing-info-h2 {
     right: auto;
     transform: none;
     text-align: center;
+    align-items: center;
     z-index: 5;
     width: 100%;
-    margin-top: 4px;
+    margin-top: 6px;
   }
   .landing-info h3 {
-    font-size: 15px;
+    font-size: 14px;
     letter-spacing: 2px;
+    margin-bottom: 4px;
   }
   .landing-info h2 {
-    font-size: 28px;
+    font-size: 26px;
     line-height: 1.2;
     justify-content: center;
     margin: 0 auto;
+    text-align: center;
   }
   h2.landing-info-h2 {
-    font-size: 30px;
+    font-size: 26px;
+    line-height: 1.2;
     justify-content: center;
+    margin: 0 auto 2px auto;
+    text-align: center;
+  }
+  .landing-h2-2,
+  .landing-h2-info-1 {
+    left: 0;
+    right: 0;
     margin: 0 auto;
+    text-align: center;
   }
   .scroll-to-explore-wrap {
     position: relative;
     bottom: auto;
     left: auto;
     transform: none;
-    margin-top: 16px;
+    margin-top: 14px;
   }
 }
 
@@ -438,12 +466,36 @@ h2.landing-info-h2 {
 
   .landing-info {
     bottom: auto;
-    top: 51%;
-    z-index: inherit;
+    top: 50%;
+    z-index: 9;
     text-align: left;
+    align-items: flex-start;
     transform: translate(0%, -50%);
     right: auto;
     left: 66%;
+  }
+  .landing-info h3 {
+    font-size: 20px;
+    letter-spacing: 2.5px;
+    margin-bottom: 6px;
+  }
+  .landing-info h2 {
+    font-size: 42px;
+    line-height: 1.15;
+    letter-spacing: 2px;
+  }
+  h2.landing-info-h2 {
+    font-size: 42px;
+    line-height: 1.15;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+  .landing-h2-2,
+  .landing-h2-info-1 {
+    left: 0;
+    right: auto;
+    margin: 0;
+    text-align: left;
   }
 }
 @media screen and (min-width: 1200px) {
@@ -463,12 +515,29 @@ h2.landing-info-h2 {
 
   .landing-info {
     bottom: auto;
-    top: 51%;
-    z-index: inherit;
+    top: 50%;
+    z-index: 9;
     text-align: left;
+    align-items: flex-start;
     transform: translate(0%, -50%);
     right: auto;
     left: 70%;
+  }
+  .landing-info h3 {
+    font-size: 22px;
+    letter-spacing: 2.5px;
+    margin-bottom: 8px;
+  }
+  .landing-info h2 {
+    font-size: 48px;
+    line-height: 1.15;
+    letter-spacing: 2px;
+  }
+  h2.landing-info-h2 {
+    font-size: 48px;
+    line-height: 1.15;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
   }
 }
 @media screen and (min-width: 1600px) {

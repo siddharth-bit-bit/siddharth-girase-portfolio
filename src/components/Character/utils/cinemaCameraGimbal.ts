@@ -178,48 +178,48 @@ export function buildCinemaCameraGimbal(): CinemaCameraGimbalRig {
   // Materials Library
   // -------------------------------------------------------------------------
   const matStealthBlack = new THREE.MeshStandardMaterial({
-    color: 0x141419,
-    roughness: 0.42,
+    color: 0x18181f,
+    roughness: 0.40,
     metalness: 0.35,
   });
 
   const matAnodizedBlack = new THREE.MeshStandardMaterial({
-    color: 0x1d1d24,
-    roughness: 0.28,
-    metalness: 0.88,
+    color: 0x22222a,
+    roughness: 0.30,
+    metalness: 0.85,
   });
 
   const matCarbonFiber = new THREE.MeshStandardMaterial({
-    color: 0x121216,
+    color: 0x18181e,
     roughness: 0.38,
-    metalness: 0.25,
+    metalness: 0.28,
   });
 
   const matPurpleAnodized = new THREE.MeshStandardMaterial({
     color: 0x9333ea,
-    roughness: 0.20,
+    roughness: 0.24,
     metalness: 0.85,
-    emissive: 0x3b0764,
-    emissiveIntensity: 0.35,
+    emissive: 0x1e0338,
+    emissiveIntensity: 0.12,
   });
 
   const matMagentaAnodized = new THREE.MeshStandardMaterial({
     color: 0xec4899,
-    roughness: 0.22,
+    roughness: 0.26,
     metalness: 0.80,
-    emissive: 0x831843,
-    emissiveIntensity: 0.30,
+    emissive: 0x3b071e,
+    emissiveIntensity: 0.10,
   });
 
   const matChromeSilver = new THREE.MeshStandardMaterial({
     color: 0xd4d4d8,
-    roughness: 0.15,
-    metalness: 0.95,
+    roughness: 0.22,
+    metalness: 0.92,
   });
 
   const matBrassGold = new THREE.MeshStandardMaterial({
     color: 0xd97706,
-    roughness: 0.25,
+    roughness: 0.28,
     metalness: 0.85,
   });
 
@@ -232,37 +232,38 @@ export function buildCinemaCameraGimbal(): CinemaCameraGimbalRig {
   // Deep multi-coated optical cinema lens glass
   const matLensGlass = new THREE.MeshPhysicalMaterial({
     color: 0x06030c,
-    roughness: 0.03,
+    roughness: 0.05,
     metalness: 0.08,
     transmission: 0.90,
     ior: 1.54,
     thickness: 0.85,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.04,
+    clearcoat: 0.90,
+    clearcoatRoughness: 0.07,
     attenuationColor: new THREE.Color(0xa855f7),
     attenuationDistance: 0.70,
   });
 
-  // Iridescent AR anti-reflective coating glare
+  // Iridescent AR anti-reflective coating glare (subtle, non-overpowering optical sheen)
   const matLensCoatingGlow = new THREE.MeshBasicMaterial({
-    color: 0xa855f7,
+    color: 0x9333ea,
     transparent: true,
-    opacity: 0.40,
+    opacity: 0.16,
     blending: THREE.AdditiveBlending,
+    depthWrite: false,
   });
 
   const matTallyRed = new THREE.MeshStandardMaterial({
     color: 0xff0044,
     emissive: 0xff0044,
-    emissiveIntensity: 2.5,
-    roughness: 0.2,
+    emissiveIntensity: 1.2,
+    roughness: 0.25,
   });
 
   const matStatusGreen = new THREE.MeshStandardMaterial({
     color: 0x10b981,
     emissive: 0x10b981,
-    emissiveIntensity: 2.0,
-    roughness: 0.2,
+    emissiveIntensity: 1.0,
+    roughness: 0.25,
   });
 
   const tallyLights: THREE.Mesh[] = [];
@@ -1147,8 +1148,8 @@ export function animateCinemaCameraGimbal(
     rig.updateHud(time);
   }
 
-  // Tally Lights Soft Pulse
-  const tallyPulse = 2.0 + Math.sin(time * 3.5) * 0.7;
+  // Tally Lights Soft Realistic Pulse
+  const tallyPulse = 0.95 + Math.sin(time * 3.5) * 0.35;
   rig.tallyLights.forEach((light) => {
     const mat = light.material as THREE.MeshStandardMaterial;
     if (mat && mat.emissiveIntensity !== undefined) {
